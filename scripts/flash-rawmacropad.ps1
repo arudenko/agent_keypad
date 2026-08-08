@@ -124,8 +124,9 @@ if ($flashOutput -notmatch 'File downloaded successfully|Download done') {
     exit 1
 }
 
-Write-Host "`nFlashed. The device should reboot with the layer indicator FLASHING RED —" -ForegroundColor Green
+Write-Host "`nFlashed. The device should reboot with the layer indicator FLASHING RED -" -ForegroundColor Green
 Write-Host "that means the watchdog is armed and no host client is connected yet. Expected.`n"
-Write-Host "Verify RAW HID enumeration, then run the hardware self-test:"
-Write-Host "  .\.venv\Scripts\python.exe -c `"import hid; print([d for d in hid.enumerate() if d['vendor_id']==0x1209])`""
-Write-Host "  .\.venv\Scripts\python.exe tools\hw_selftest.py"
+Write-Host 'Verify RAW HID enumeration, then run the hardware self-test:'
+Write-Host '  .\.venv\Scripts\python.exe tools\check_device.py'
+Write-Host '  .\.venv\Scripts\python.exe tools\hw_selftest.py'
+exit 0

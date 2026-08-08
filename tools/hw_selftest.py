@@ -42,8 +42,8 @@ def _preflight() -> bool:
     if KM16.is_present():
         return True
     if KM16.stock_firmware_present():
-        print("A KM16 is attached but still on STOCK firmware (1e. VID 0x5343/PID 0x0080).")
-        print("Flash RawMacroPad first — see README.md Phase 1/2.")
+        print("A KM16 is attached but still on STOCK firmware (VID 0x5343 / PID 0x0080).")
+        print("Flash RawMacroPad first - see README.md Phase 1/2.")
     else:
         print("No KM16 found. Expected RAW HID VID 0x1209 / PID 0x88BF.")
     return False
@@ -89,7 +89,7 @@ async def main() -> int:
         device.set_frame(CHAIN_KEYS, TEST_COLORS, force=True)
         await asyncio.sleep(1.5)
 
-        print("[4] single-LED command 0x06 — key 0 white, others unchanged")
+        print("[4] single-LED command 0x06 - key 0 white, others unchanged")
         print("    (if the WHOLE pad turns white, the 0x04/0x06 bug is back)")
         device.set_led(CHAIN_KEYS, 0, 0xFFFFFF)
         await asyncio.sleep(1.5)
@@ -107,7 +107,7 @@ async def main() -> int:
             device.set_frame(CHAIN_LAYER, [color], force=True)
             await asyncio.sleep(0.5)
 
-        print("\n[7] input test — press all 16 keys, click all 3 encoders, turn each one.")
+        print("\n[7] input test - press all 16 keys, click all 3 encoders, turn each one.")
         print("    Ctrl+C when done.\n")
         while True:
             await asyncio.sleep(0.5)
