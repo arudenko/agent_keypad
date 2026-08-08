@@ -4,8 +4,7 @@ An MMD KM16 macropad as a bidirectional physical control surface for the Claude 
 running inside [Herdr](https://herdr.dev).
 
 - Each of the 16 keys is a live agent. Press one to focus it.
-- Each key's RGB shows that agent's state: blue working, red blocked, green done, dim white
-  idle, amber unknown, off empty.
+- Each key's RGB shows that agent's state — see [Using the pad](#using-the-pad).
 - The 6 underglow LEDs summarise the whole session at a glance.
 - Three encoders navigate agents and send Esc / Enter.
 - Runs over RAW HID, so it works regardless of which desktop app has keyboard focus.
@@ -25,9 +24,128 @@ Working notes and hard-won protocol details: [`CLAUDE.md`](CLAUDE.md).
 | 5 — integration | **working** — agents map to keys, LEDs track state, key press focuses |
 | 6 — polish | config, logging, reconnect done; startup service not yet set up |
 
-Known gap: `pane.agent_status_changed` has never been observed firing. LED updates currently
-arrive via the 15 s periodic reconcile, so a state change can lag. Under investigation with
-`tools/diag_status_events.py`.
+Known gap: `pane.agent_status_changed` has never been observed firing. LED updates therefore
+arrive via the periodic resync (`herdr.poll_seconds`, default 1.5 s) rather than events.
+Under investigation with `tools/diag_status_events.py`.
+
+## Using the pad
+
+### LED colours
+
+Every colour below is a default in [`config.yaml`](config.yaml) and can be changed there.
+
+| Colour | State | What it means | Default |
+| --- | --- | --- | --- |
+| ⚪ dim white | `idle` | Ready for input, and you have seen it | `#202020` |
+| 🔵 blue | `working` | Busy right now | `#0066ff` |
+| 🟢 green | `done` | Finished work you have **not looked at yet** | `#00ff44` |
+| 🔴 red | `blocked` | Waiting on a permission prompt or a question | `#ff0000` |
+| 🟠 amber | `unknown` | An agent is there, but Herdr cannot classify it | `#ff9900` |
+| ⚫ off | `empty` | No agent on that key | `#000000` |
+
+Two of them move, so urgency reads from the corner of your eye:
+
+- **`blocked` pulses strongly** (65% depth) — this is the one that wants you.
+- **`working` breathes gently** (20% depth).
+- Everything else is steady, and the pad sends no HID traffic at all while nothing pulses.
+
+The whole pad runs at `brightness` (default `0.35`) so it is not glaring. The **currently
+selected** key is drawn at up to double brightness — brighter, never a different colour, so
+the state still reads correctly.
+
+**Green is a one-shot flag.** `done` means "I finished something while you were not looking".
+Focusing an agent marks it seen, so pressing a green key turns it dim white. That is Herdr's
+semantics, not a bug — the signal has done its job.
+
+### Underglow
+
+The 6 underglow LEDs summarise the entire session, so you get peripheral warning without
+reading individual keys. Most urgent state present anywhere wins:
+
+```
+any blocked  ->  red        (pulsing)
+else done    ->  green
+else working ->  blue
+else         ->  dim white
+```
+
+Set `km16.underglow: false` to switch it off.
+
+### Layer indicator
+
+Not driven by agent state. The firmware flashes it **red** whenever no client is pinging the
+watchdog — i.e. the daemon is not running or has died. A calm indicator means the daemon is
+alive.
+
+### Key mapping
+
+The 16 keys are agent slots, numbered top-left to bottom-right:
+
+```
++-----+-----+-----+-----+
+|  0  |  1  |  2  |  3  |
++-----+-----+-----+-----+
+|  4  |  5  |  6  |  7  |
++-----+-----+-----+-----+
+|  8  |  9  | 10  | 11  |
++-----+-----+-----+-----+
+| 12  | 13  | 14  | 15  |
++-----+-----+-----+-----+
+```
+
+Upstream's readme confusingly calls this "top-left to bottom-right in RTL order". It is plain
+row-major, left to right. The physical LED strip does zigzag, but the firmware corrects it
+(`ledmap[] = {0,1,2,3, 7,6,5,4, 8,9,10,11, 15,14,13,12}` in `KM16.h`), so the host addresses
+logical indices and key *N* always lights LED *N*. Confirmed on this unit by
+`tools/hw_selftest.py`.
+
+**Pressing a key focuses that agent in Herdr, and nothing else.** It never answers a prompt,
+never sends a keystroke, and never approves a `blocked` agent. Pressing an empty key does
+nothing.
+
+Slots are **sticky**: an agent keeps its key for as long as it is alive, new agents take the
+lowest free key, and a state change never reshuffles the pad. When an agent exits, its key
+frees up for the next one. Pin an agent to a specific key by Herdr agent name:
+
+```yaml
+mapping:
+  static:
+    0: reviewer
+    1: backend
+```
+
+A pinned key stays reserved (and unlit) until that agent shows up.
+
+### Encoders
+
+All three are also push buttons. Turning and pressing use the same index.
+
+| Control | Index | Turn | Press |
+| --- | --- | --- | --- |
+| Main encoder | 16 | Cycle agents **by attention priority** | Focus the selected agent |
+| Small left | 17 | Cycle agents in slot order | Send **Esc** |
+| Small right | 18 | *(unassigned)* | Send **Enter** — long press only |
+
+Attention priority is `blocked` → `done` → `working` → `idle` → `unknown`, so turning the main
+knob walks you through whatever needs you most first. Ties break by slot number, so the order
+stays stable.
+
+Turning only moves the selection and talks to nobody; the highlighted key brightens. Herdr is
+only contacted when you press.
+
+### Safety-critical behaviour
+
+`enter` and `interrupt` are gated behind a **600 ms long press** (`safety.long_press_ms`), so
+a knocked knob cannot accept a Claude Code permission request. A short press is logged and
+ignored. Which actions are gated is configurable:
+
+```yaml
+safety:
+  long_press_ms: 600
+  require_long_press_for: [enter, interrupt]
+```
+
+Keys are debounced at 50 ms. Every control action is logged.
 
 ## Setup
 
@@ -170,5 +288,5 @@ docs/              committed Herdr schema + skill doc (regenerate after Herdr up
 scripts/           firmware backup / flash / restore, schema refresh
 src/herdr_km16/    the daemon
 tools/             interactive probes for Phase 3 (hardware) and Phase 4 (Herdr)
-tests/             45 unit tests; no hardware or Herdr required
+tests/             unit tests; no hardware or Herdr required
 ```

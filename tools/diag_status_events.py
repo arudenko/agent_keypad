@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -20,13 +21,22 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from herdr_km16.herdr import HerdrClient, _connect, _encode, _unwrap  # noqa: E402
 
-DURATION = 600.0
+DURATION = 900.0
 
 
 async def main() -> int:
     mode = sys.argv[1] if len(sys.argv) > 1 else "null"
     client = HerdrClient()
     panes = [a["pane_id"] for a in await client.list_agents()]
+
+    # Always watch our own pane: it is the one transition we can reliably provoke (this
+    # agent goes working -> idle at the end of every turn). A previous run silently omitted
+    # it because agent.list had not yet detected this session, which made the whole
+    # experiment vacuous.
+    own = os.environ.get("HERDR_PANE_ID")
+    if own and own not in panes:
+        panes.append(own)
+    print(f"[{mode}] watching panes: {panes}  (own={own})", flush=True)
 
     subs = []
     for pane_id in panes:
