@@ -133,9 +133,9 @@ selected (their keys dim to a quarter brightness to show that).
 
 | Key | Action | Sends | Guard |
 | --- | --- | --- | --- |
-| 12 | **Approve** | `enter` — accepts the highlighted prompt option | **hold 600 ms** |
+| 12 | **Approve** | `enter` — accepts the highlighted prompt option | **hold 300 ms** |
 | 13 | **Reject** | `esc` — declines | instant |
-| 14 | **Interrupt** | `ctrl+c` — stops the agent | **hold 600 ms** |
+| 14 | **Interrupt** | `ctrl+c` — stops the agent | **hold 300 ms** |
 | 15 | **Next** | *nothing* — selects the next agent needing attention | instant |
 
 Approve sends Enter, which accepts **whichever option Claude Code currently has highlighted**
@@ -184,13 +184,13 @@ returns to your configured `km16.brightness`.
 
 ### Safety-critical behaviour
 
-`approve`, `enter` and `interrupt` are gated behind a **600 ms long press**
+`approve`, `enter` and `interrupt` are gated behind a **300 ms long press**
 (`safety.long_press_ms`), so a knocked key or knob cannot accept a Claude Code permission
 request. A short press is logged and ignored. Which actions are gated is configurable:
 
 ```yaml
 safety:
-  long_press_ms: 600
+  long_press_ms: 300
   require_long_press_for: [approve, enter, interrupt]
 ```
 
@@ -327,7 +327,7 @@ Bootloader mode first. The pad returns to stock and works with VIA again.
 The keypad drives agents that can execute shell commands, so:
 
 - A key press only **focuses** an agent. It never answers a blocked prompt.
-- `enter` and `interrupt` need a long press (600 ms default, `config.yaml`).
+- `enter` and `interrupt` need a long press (300 ms default, `config.yaml`).
 - Focusing a `done` agent marks it seen, so green turns to dim white. That's Herdr's
   semantics, not a bug.
 

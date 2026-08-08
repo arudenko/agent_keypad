@@ -217,3 +217,27 @@ def test_bounced_press_is_swallowed():
     asyncio.run(router.handle_key(13, True))
     asyncio.run(router.handle_key(13, False))
     assert 13 not in router._press_started
+
+
+def test_guard_uses_the_configured_threshold_not_a_hardcoded_one():
+    """A press just under the threshold is refused; just over is accepted."""
+    router, client, _ = make_router(long_press_ms=300)
+    router.selected = 0
+
+    press(router, 12, held_ms=290)
+    assert client.sent == [], "290ms must not clear a 300ms guard"
+
+    press(router, 12, held_ms=310)
+    assert client.sent == [("w1:p1", ["enter"])], "310ms should clear a 300ms guard"
+
+
+def test_threshold_is_honoured_when_reconfigured():
+    router, client, _ = make_router(long_press_ms=1000)
+    router.selected = 0
+    press(router, 12, held_ms=500)
+    assert client.sent == [], "the guard must follow config, not a constant"
+
+
+def test_shipped_config_uses_300ms():
+    cfg = load_config(Path(__file__).resolve().parent.parent / "config.yaml")
+    assert cfg.long_press_ms == 300

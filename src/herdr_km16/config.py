@@ -46,7 +46,7 @@ class Config:
     right_encoder: EncoderConfig = field(default_factory=lambda: EncoderConfig("brightness", "enter"))
     action_keys: dict[int, str] = field(default_factory=dict)
     action_colors: dict[str, int] = field(default_factory=lambda: dict(DEFAULT_ACTION_COLORS))
-    long_press_ms: int = 600
+    long_press_ms: int = 300
     require_long_press_for: list[str] = field(
         default_factory=lambda: ["approve", "enter", "interrupt"]
     )
