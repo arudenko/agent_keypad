@@ -4,6 +4,10 @@
 herdr:
   session: null            # null = default session (resolved via HERDR_SOCKET_PATH)
   reconnect_seconds: 1
+  # How often to re-list agents. This is the primary way status changes reach the LEDs,
+  # because pane.agent_status_changed has never been seen firing on this Herdr build.
+  # agent.list costs ~0.7 ms locally, so this is cheap; it bounds worst-case LED staleness.
+  poll_seconds: 1.5
 
 km16:
   watchdog_ms: 2000        # 0 disables; firmware flashes the layer LED red if we stop pinging

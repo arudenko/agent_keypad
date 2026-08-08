@@ -33,7 +33,6 @@ from .mapping import Agent, SlotMap
 log = logging.getLogger("herdr_km16")
 
 ANIMATION_HZ = 8
-RECONCILE_SECONDS = 15.0
 
 # Events that change which panes exist, so the subscription set must be rebuilt.
 TOPOLOGY_EVENTS = {"pane_created", "pane_closed", "pane_exited", "pane_agent_detected", "pane_moved"}
@@ -109,9 +108,15 @@ class Controller:
             await asyncio.sleep(self.config.reconnect_seconds)
 
     async def reconcile_loop(self) -> None:
-        """Belt and braces: periodic full resync catches anything the event stream missed."""
+        """Periodic resync. Currently the *primary* path for status changes, not a backstop.
+
+        pane.agent_status_changed has never been observed firing against this Herdr build
+        (see tools/diag_status_events.py), so polling is what actually keeps the LEDs
+        truthful. agent.list measures at 0.69 ms median over the local pipe, so a short
+        interval costs nothing meaningful and bounds how stale a key can look.
+        """
         while True:
-            await asyncio.sleep(RECONCILE_SECONDS)
+            await asyncio.sleep(self.config.poll_seconds)
             with contextlib.suppress(HerdrError, OSError):
                 await self._reconcile()
 
