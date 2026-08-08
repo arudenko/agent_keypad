@@ -219,9 +219,26 @@ class Controller:
                     self.device.close()
 
 
+def _resolve_config(explicit: Path | None) -> Path | None:
+    """Find config.yaml, or fail loudly.
+
+    Running from the wrong directory must not silently fall back to built-in defaults --
+    the whole point of the file is that behaviour is configurable without touching source.
+    """
+    if explicit is not None:
+        if not explicit.exists():
+            raise SystemExit(f"config file not found: {explicit}")
+        return explicit
+    for candidate in (Path.cwd() / "config.yaml", Path(__file__).resolve().parents[2] / "config.yaml"):
+        if candidate.exists():
+            return candidate
+    return None  # genuinely no config anywhere: defaults are the intended behaviour
+
+
 def run() -> None:
-    parser = argparse.ArgumentParser(prog="herdr-km16", description=__doc__)
-    parser.add_argument("-c", "--config", default="config.yaml", type=Path)
+    parser = argparse.ArgumentParser(prog="herdr-km16", description="KM16 -> Herdr agent controller")
+    parser.add_argument("-c", "--config", default=None, type=Path,
+                        help="path to config.yaml (default: ./config.yaml, else the repo copy)")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 
@@ -229,7 +246,9 @@ def run() -> None:
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
     )
-    config = load_config(args.config)
+    config_path = _resolve_config(args.config)
+    log.info("config: %s", config_path or "(built-in defaults)")
+    config = load_config(config_path)
     try:
         asyncio.run(Controller(config).run())
     except KeyboardInterrupt:

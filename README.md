@@ -109,7 +109,24 @@ upstream `0x04`/`0x06` bug has come back — see `CLAUDE.md`.
 ### 5. Run the controller
 
 ```powershell
-.\.venv\Scripts\python.exe -m herdr_km16.main --config config.yaml -v
+.\.venv\Scripts\herdr-km16.exe
+```
+
+That's it. It runs in the foreground and logs what it does; **Ctrl+C** to stop. Add `-v` for
+debug logging, or `-c <path>` for a different config.
+
+It works from any directory — with no `-c` it uses `./config.yaml` if present, otherwise the
+copy in the repo, and logs which one it picked. A `-c` path that doesn't exist is a hard
+error rather than a silent fall back to defaults.
+
+Start order doesn't matter: the daemon tolerates Herdr not running and the keypad being
+unplugged, and reconnects to either. While no client is connected the pad's layer indicator
+flashes red — that's the firmware watchdog, and it stops once the daemon attaches.
+
+To run it without a console window:
+
+```powershell
+Start-Process -WindowStyle Hidden .\.venv\Scripts\pythonw.exe -ArgumentList '-m','herdr_km16.main'
 ```
 
 You can check the Herdr half at any time, no hardware needed:
