@@ -40,12 +40,30 @@ py -3.12 -m venv .venv
 
 ### 1. Install the flashing toolchain
 
+`arduino-cli` is in winget:
+
 ```powershell
-winget install dfu-util
 winget install ArduinoSA.CLI
 ```
 
-Reopen the shell afterwards so `PATH` picks them up.
+`dfu-util` is **not** in winget (checked), and neither Chocolatey nor Scoop is installed on
+this machine. Download the prebuilt Windows binaries instead:
+
+1. Grab `dfu-util-0.11-binaries.tar.xz` from <https://dfu-util.sourceforge.net/releases/>
+2. Extract the `win64` folder somewhere permanent, e.g. `%USERPROFILE%\tools\dfu-util\`
+3. Add that folder to your `PATH`:
+
+```powershell
+$dir = "$env:USERPROFILE\tools\dfu-util"
+[Environment]::SetEnvironmentVariable(
+    'Path', [Environment]::GetEnvironmentVariable('Path','User') + ";$dir", 'User')
+```
+
+Reopen the shell afterwards so `PATH` picks both tools up, then confirm:
+
+```powershell
+dfu-util --version; arduino-cli version
+```
 
 You will also need a USB driver that `dfu-util` can talk to. On Windows the STM32duino
 bootloader usually needs WinUSB bound to it — use [Zadig](https://zadig.akeo.ie/), select the
