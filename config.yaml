@@ -4,14 +4,15 @@
 herdr:
   session: null            # null = default session (resolved via HERDR_SOCKET_PATH)
   reconnect_seconds: 1
-  # How often to re-list agents. This is the primary way status changes reach the LEDs,
-  # because pane.agent_status_changed has never been seen firing on this Herdr build.
-  # agent.list costs ~0.7 ms locally, so this is cheap; it bounds worst-case LED staleness.
-  poll_seconds: 1.5
+  # Backstop resync. pane.agent_status_changed drives the LEDs, so this only has to catch
+  # anything the event stream misses (a dropped connection, a pane we have not resubscribed
+  # to yet). agent.list costs ~0.7 ms locally, so a short interval is still cheap.
+  poll_seconds: 5
 
 km16:
   watchdog_ms: 2000        # 0 disables; firmware flashes the layer LED red if we stop pinging
-  brightness: 0.35
+  brightness: 0.35         # starting level; the right knob adjusts it live
+  brightness_step: 0.05    # per detent
   underglow: true
   pulse: true
 
@@ -59,7 +60,7 @@ controls:
     press: escape
 
   right_encoder:           # key index 18
-    rotate: none
+    rotate: brightness     # turn to dim/brighten the whole pad (runtime only)
     press: enter
 
 safety:

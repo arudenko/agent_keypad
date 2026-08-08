@@ -65,9 +65,18 @@ Transport and framing, all verified empirically against this install:
 - The response body and its trailing `\n` arrive as **separate pipe messages**. Always read
   by line, never assume one read == one message.
 
-Naming trap: subscription types are dot-separated but the event envelope reports
-snake_case, e.g. subscribe to `pane.agent_status_changed`, receive
-`{"event": "pane_agent_status_changed", "data": {...}}`.
+**Naming trap — Herdr is inconsistent, and it cost real time here.** Subscription types are
+always dot-separated, but the *envelope* spelling varies per event type. Verified on
+protocol 19:
+
+```json
+{"event": "pane_agent_detected",       "data": {"type": "pane_agent_detected", ...}}
+{"event": "pane.agent_status_changed", "data": {...}}   // dots, and no "type" field
+```
+
+Matching only the snake_case spelling silently drops every status change and looks exactly
+like "Herdr never sends this event" — polling then covers for it, so nothing appears broken.
+Always normalise with `herdr.event_kind()` rather than comparing `event` directly.
 
 Subscription coverage:
 
@@ -174,10 +183,14 @@ All phases through integration are done and verified on hardware:
 - 19/19 keys, 3/3 encoders and all three LED chains confirmed by `tools/hw_selftest.py`.
 - Daemon drives the pad from live agent state; keys focus, bottom row acts.
 
-Remaining: no startup service yet, and `pane.agent_status_changed` has never been seen
-firing, so `reconcile_loop` polling (`herdr.poll_seconds`, 1.5 s) is the primary path for
-status changes rather than a backstop. `tools/diag_event_vs_poll.py` correlates real
-transitions against delivered events to settle whether that is a Herdr limitation.
+LED updates are event-driven: `pane.agent_status_changed` does fire, and arrives slightly
+ahead of what polling detects. `reconcile_loop` (`herdr.poll_seconds`, 5 s) is only a
+backstop for a dropped subscription or a not-yet-resubscribed pane.
+
+Remaining: no startup service yet. `tools/diag_event_vs_poll.py` re-checks event delivery
+against real transitions if this is ever in doubt again -- it distinguishes subscribed from
+unsubscribed panes and proves its own listener stayed alive, because three earlier attempts
+at that experiment each produced a confident wrong answer without those controls.
 
 Getting into DFU needs WinUSB bound to the bootloader via Zadig (`C:\Soft\zadig-2.9.exe`);
 without it `dfu-util` sees `1eaf:0003` but cannot open it. Enter bootloader mode by holding

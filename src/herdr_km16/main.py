@@ -65,7 +65,9 @@ class Controller:
             action_keys=config.action_keys,
             action_colors=config.action_colors,
         )
-        self.router = ActionRouter(config=config, client=self.client, slots=self.slots)
+        self.router = ActionRouter(
+            config=config, client=self.client, slots=self.slots, renderer=self.renderer
+        )
         self.device: KM16 | None = None
         self.dirty = asyncio.Event()
         self._input_queue: asyncio.Queue[dict] = asyncio.Queue()
@@ -114,12 +116,12 @@ class Controller:
             await asyncio.sleep(self.config.reconnect_seconds)
 
     async def reconcile_loop(self) -> None:
-        """Periodic resync. Currently the *primary* path for status changes, not a backstop.
+        """Backstop resync behind the event stream.
 
-        pane.agent_status_changed has never been observed firing against this Herdr build
-        (see tools/diag_status_events.py), so polling is what actually keeps the LEDs
-        truthful. agent.list measures at 0.69 ms median over the local pipe, so a short
-        interval costs nothing meaningful and bounds how stale a key can look.
+        Events are the primary path (see herdr.event_kind for the naming trap that had them
+        silently dropped). This catches what events cannot: a dropped subscription, or a
+        pane that appeared before we resubscribed. agent.list is 0.69 ms median locally, so
+        the interval is cheap either way.
         """
         while True:
             await asyncio.sleep(self.config.poll_seconds)

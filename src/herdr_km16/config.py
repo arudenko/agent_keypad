@@ -12,7 +12,7 @@ from .action_types import DEFAULT_ACTION_COLORS, VALID_ACTION_KEYS
 from .leds import DEFAULT_COLORS, parse_color
 
 VALID_KEY_ACTIONS = {"focus_agent", "none"}
-VALID_ROTATE_ACTIONS = {"cycle_attention_agents", "cycle_agents", "none"}
+VALID_ROTATE_ACTIONS = {"cycle_attention_agents", "cycle_agents", "brightness", "none"}
 VALID_PRESS_ACTIONS = {"focus_selected", "escape", "enter", "interrupt", "none"}
 
 
@@ -32,6 +32,7 @@ class Config:
     poll_seconds: float = 1.5
     watchdog_ms: int = 2000
     brightness: float = 0.35
+    brightness_step: float = 0.05
     underglow: bool = True
     pulse: bool = True
     colors: dict[str, int] = field(default_factory=lambda: dict(DEFAULT_COLORS))
@@ -42,7 +43,7 @@ class Config:
         default_factory=lambda: EncoderConfig("cycle_attention_agents", "focus_selected", focus_on_turn=True)
     )
     left_encoder: EncoderConfig = field(default_factory=lambda: EncoderConfig("cycle_agents", "escape"))
-    right_encoder: EncoderConfig = field(default_factory=lambda: EncoderConfig("none", "enter"))
+    right_encoder: EncoderConfig = field(default_factory=lambda: EncoderConfig("brightness", "enter"))
     action_keys: dict[int, str] = field(default_factory=dict)
     action_colors: dict[str, int] = field(default_factory=lambda: dict(DEFAULT_ACTION_COLORS))
     long_press_ms: int = 600
@@ -61,7 +62,7 @@ def _encoder(raw: dict[str, Any] | None, default: EncoderConfig, where: str) -> 
     if press not in VALID_PRESS_ACTIONS:
         raise ValueError(f"{where}.press: unknown action {press!r} (expected one of {sorted(VALID_PRESS_ACTIONS)})")
     focus_on_turn = bool(raw.get("focus_on_turn", default.focus_on_turn))
-    if focus_on_turn and rotate == "none":
+    if focus_on_turn and rotate not in {"cycle_attention_agents", "cycle_agents"}:
         raise ValueError(f"{where}.focus_on_turn needs a rotate action to focus onto")
     return EncoderConfig(rotate=rotate, press=press, focus_on_turn=focus_on_turn)
 
@@ -87,10 +88,13 @@ def load_config(path: str | Path | None = None) -> Config:
     km16 = raw.get("km16") or {}
     cfg.watchdog_ms = int(km16.get("watchdog_ms", cfg.watchdog_ms))
     cfg.brightness = float(km16.get("brightness", cfg.brightness))
+    cfg.brightness_step = float(km16.get("brightness_step", cfg.brightness_step))
     cfg.underglow = bool(km16.get("underglow", cfg.underglow))
     cfg.pulse = bool(km16.get("pulse", cfg.pulse))
     if not 0.0 <= cfg.brightness <= 1.0:
         raise ValueError(f"km16.brightness must be within 0..1, got {cfg.brightness}")
+    if not 0.0 < cfg.brightness_step <= 0.5:
+        raise ValueError(f"km16.brightness_step must be within 0..0.5, got {cfg.brightness_step}")
     if cfg.watchdog_ms and cfg.watchdog_ms < 100:
         raise ValueError(f"km16.watchdog_ms too small to ping reliably: {cfg.watchdog_ms}")
 

@@ -29,12 +29,17 @@ DEBOUNCE_SECONDS = 0.05
 # How long the knob must rest before its selection is focused.
 FOCUS_COALESCE_SECONDS = 0.15
 
+# Brightness knob limits. The floor stays above zero so the pad never looks dead.
+BRIGHTNESS_MIN = 0.03
+BRIGHTNESS_MAX = 1.0
+
 
 @dataclass
 class ActionRouter:
     config: Config
     client: HerdrClient
     slots: SlotMap
+    renderer: object | None = None
     selected: int | None = None
     _press_started: dict[int, float] = field(default_factory=dict, init=False)
     _last_press: dict[int, float] = field(default_factory=dict, init=False)
@@ -179,10 +184,25 @@ class ActionRouter:
 
         self._focus_task = asyncio.get_running_loop().create_task(settle())
 
+    def adjust_brightness(self, delta: int) -> float | None:
+        """Step the LED brightness. Runtime only -- config.yaml is never rewritten."""
+        if self.renderer is None:
+            return None
+        step = self.config.brightness_step * (1 if delta > 0 else -1)
+        # Floor above zero: a knob that can turn the pad completely dark looks broken.
+        new = min(BRIGHTNESS_MAX, max(BRIGHTNESS_MIN, round(self.renderer.brightness + step, 3)))
+        if new != self.renderer.brightness:
+            self.renderer.brightness = new
+            log.info("brightness -> %.2f", new)
+        return new
+
     async def handle_encoder(self, encoder: int, delta: int) -> None:
         # Turn events reuse the push-button index: 16 main, 17 left, 18 right.
         config = self._encoder_for(encoder)
         if config is None or config.rotate == "none":
+            return
+        if config.rotate == "brightness":
+            self.adjust_brightness(delta)
             return
         self.cycle(config.rotate, delta)
         if config.focus_on_turn:

@@ -60,11 +60,21 @@ def test_readme_documents_every_action_key_binding():
         assert action.split("_")[0] in README.lower(), f"action {action} not described"
 
 
+def _numbers(text: str) -> set[str]:
+    """Both spellings of a float, so '5' and '5.0' compare equal in prose."""
+    return {text, text.rstrip("0").rstrip(".")}
+
+
 def test_readme_matches_shipped_config():
     cfg = load_config(Path(__file__).resolve().parent.parent / "config.yaml")
     assert f"default `{cfg.brightness}`" in README
     assert f"{cfg.long_press_ms} ms long press" in README
-    assert f"default {cfg.poll_seconds} s" in README
+    assert any(f"default {n} s" in README for n in _numbers(str(cfg.poll_seconds))), (
+        f"README does not state the {cfg.poll_seconds}s poll interval"
+    )
+    assert any(f"({n})" in README for n in _numbers(str(cfg.brightness_step))), (
+        f"README does not state the {cfg.brightness_step} brightness step"
+    )
 
 
 def test_readme_documents_debounce():

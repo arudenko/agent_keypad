@@ -25,11 +25,10 @@ Working notes and hard-won protocol details: [`CLAUDE.md`](CLAUDE.md).
 | 5 — integration | **working** — agents map to keys, LEDs track state, keys focus and act |
 | 6 — polish | config, logging, reconnect done; startup service not yet set up |
 
-Known gap: `pane.agent_status_changed` has never been observed firing, so LED updates arrive
-via the periodic resync (`herdr.poll_seconds`, default 1.5 s) rather than events. This costs
-nothing measurable — `agent.list` is 0.69 ms — but it is polling where the API offers push.
-`tools/diag_event_vs_poll.py` correlates real transitions against delivered events to settle
-whether that is a Herdr limitation or our subscription.
+LED updates are event-driven and land within milliseconds of a state change. A periodic
+resync (`herdr.poll_seconds`, default 5 s) runs behind them purely as a backstop.
+
+The only outstanding item is the startup service — the daemon does not yet launch at logon.
 
 ## Using the pad
 
@@ -165,7 +164,7 @@ All three are also push buttons. Turning and pressing use the same index.
 | --- | --- | --- | --- |
 | Main encoder | 16 | Cycle **by attention priority**, focusing as it lands | Focus the selected agent |
 | Small left | 17 | Cycle agents in slot order | Send **Esc** |
-| Small right | 18 | *(unassigned)* | Send **Enter** — long press only |
+| Small right | 18 | **Brightness** — dim/brighten the whole pad | Send **Enter** — long press only |
 
 Attention priority is `blocked` → `done` → `working` → `idle` → `unknown`, so turning the main
 knob walks you through whatever needs you most first. Ties break by slot number, so the order
@@ -177,6 +176,11 @@ strobed through every agent on the way past.
 
 The other two only move the selection and talk to nobody; the highlighted key brightens and
 Herdr is contacted when you press. Set `focus_on_turn` on any encoder to change that.
+
+The right knob adjusts brightness live, `km16.brightness_step` (0.05) per detent. It clamps
+at 1.0 and floors at 0.03 rather than 0 — a pad you can accidentally turn completely dark
+looks broken. The change is **runtime only**: `config.yaml` is never rewritten, so restarting
+returns to your configured `km16.brightness`.
 
 ### Safety-critical behaviour
 
