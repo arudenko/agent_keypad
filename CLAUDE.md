@@ -105,11 +105,30 @@ small right `18`. Encoder turns reuse the same index. LED chain `0` = 16 under-k
 `1` = 6 underglow, `2` = 1 layer indicator (1-bit colour, from the MSB of each component,
 and it ignores chain-enable).
 
-**Upstream bug — confirmed present at HEAD (`ead652e`, Feb 2026).** The stock Python and Node
-clients implement `set_led()` with command `0x04` *plus* an index byte, but `0x04` is
-"set whole chain to one colour". It silently paints the entire chain. `src/herdr_km16/km16.py`
-is a reviewed local implementation that uses `0x06` correctly; `tests/test_led_protocol.py`
-guards it. Do not `pip install` the upstream client over it.
+### Two upstream bugs, and they mask each other
+
+Both confirmed at upstream HEAD `ead652e` (Feb 2026).
+
+**1. Client bug.** The stock Python and Node clients implement `set_led()` with command
+`0x04` *plus* an index byte, but `0x04` is "set whole chain to one colour". It silently
+paints the entire chain. `src/herdr_km16/km16.py` is a reviewed local implementation that
+uses `0x06` correctly; `tests/test_led_protocol.py` guards it. Do not `pip install` the
+upstream client over it.
+
+**2. Firmware bug — found here, not documented anywhere upstream.** In `km16.ino` the
+`case 0x06:` block is **missing its `break;`** and falls straight through into
+`case 0xFF: NVIC_SystemReset()`. So a correctly-formed single-LED write **reboots the MCU**.
+Symptom: LED writes appear to work, then `hid.read()` fails with `OSError('read error')`
+about a second later as the device re-enumerates.
+
+The two bugs hide each other. Upstream's client sends `0x04` for `set_led`, so it never
+reaches the broken `0x06` case — fixing bug 1 the way the handoff recommends is precisely
+what exposes bug 2.
+
+Fixed locally by `firmware/patches/0001-km16-add-missing-break-to-set-single-led.patch`.
+`scripts/flash-rawmacropad.ps1` pins upstream to `ead652e`, applies every patch in that
+directory, and refuses to flash if a source scan still finds the fall-through. **Never flash
+unpatched firmware** — `set_led` is unusable on it.
 
 Prefer pushing a whole 16-LED frame with `0x05` on change rather than many `0x06` writes.
 The upstream client also reuses one shared buffer without clearing it between commands;

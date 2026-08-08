@@ -11,7 +11,18 @@ Packet builders are pure functions so the protocol can be tested without hardwar
 from __future__ import annotations
 
 import asyncio
+import logging
+import queue
+import threading
 from typing import Callable, Iterable, Sequence
+
+log = logging.getLogger("herdr_km16.km16")
+
+# hidapi device handles are not thread-safe. Reading on one thread while writing on
+# another makes the Windows backend fail with OSError('read error') within seconds, so a
+# single thread owns the handle and does both. Reads use a short timeout to keep queued
+# writes responsive.
+READ_TIMEOUT_MS = 20
 
 VID = 0x1209
 PID = 0x88BF
@@ -104,7 +115,12 @@ def build_chain_array(chain: int, colors: Sequence[int]) -> bytes:
 
 
 def build_set_led(chain: int, index: int, color: int) -> bytes:
-    """Single LED. Command 0x06 — upstream's 0x04 is the bug this module exists to avoid."""
+    """Single LED. Command 0x06 -- upstream's 0x04 is the bug this module exists to avoid.
+
+    Requires patched firmware: stock km16.ino falls through from case 0x06 into the 0xFF
+    reset, so this packet reboots an unpatched device. See CLAUDE.md and
+    firmware/patches/. Prefer set_frame() anyway -- one packet, always consistent.
+    """
     size = CHAIN_SIZES.get(chain)
     if size is not None and not 0 <= index < size:
         raise ValueError(f"led index {index} out of range for chain {chain} (size {size})")
@@ -143,10 +159,18 @@ class KM16:
 
     def __init__(self, device):
         self._hid = device
-        self._read_task: asyncio.Task | None = None
         self._watchdog_task: asyncio.Task | None = None
         self._handlers: list[Callable[[dict], None]] = []
         self._last_frame: dict[int, tuple[int, ...]] = {}
+        # The owning thread and its outbound queue.
+        self._writes: queue.Queue[bytes] = queue.Queue()
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        # Diagnostics: a silent read loop is indistinguishable from an idle keypad.
+        self.read_error: Exception | None = None
+        self.reads_attempted = 0
+        self.reports_received = 0
 
     @classmethod
     def open(cls) -> "KM16":
@@ -178,7 +202,12 @@ class KM16:
         self._handlers.append(handler)
 
     def _write(self, packet: bytes) -> None:
-        self._hid.write(packet)
+        """Queue a packet for the owning thread. Fire and forget."""
+        if self._thread is None:
+            # No I/O thread yet (LED setup before start_reading): safe to write inline.
+            self._hid.write(packet)
+        else:
+            self._writes.put(packet)
 
     # --- LED output -------------------------------------------------------
 
@@ -232,27 +261,56 @@ class KM16:
     # --- input ------------------------------------------------------------
 
     def start_reading(self) -> None:
-        self._read_task = asyncio.get_running_loop().create_task(self._read_loop())
+        """Hand the device over to its owning thread."""
+        self._loop = asyncio.get_running_loop()
+        self._thread = threading.Thread(target=self._io_loop, name="km16-io", daemon=True)
+        self._thread.start()
 
-    async def _read_loop(self) -> None:
-        loop = asyncio.get_running_loop()
+    def _io_loop(self) -> None:
+        """Sole owner of the hidapi handle: drains writes, then polls for input."""
         try:
+            while not self._stop.is_set():
+                while True:
+                    try:
+                        self._hid.write(self._writes.get_nowait())
+                    except queue.Empty:
+                        break
+                data = self._hid.read(REPORT_SIZE, timeout_ms=READ_TIMEOUT_MS)
+                self.reads_attempted += 1
+                if not data:
+                    continue
+                self.reports_received += 1
+                event = parse_event(data)
+                if event and self._loop is not None:
+                    self._loop.call_soon_threadsafe(self._dispatch, event)
+
+            # Flush anything queued during shutdown, e.g. the final blank LED frame.
             while True:
-                data = await loop.run_in_executor(
-                    None, lambda: self._hid.read(REPORT_SIZE, timeout_ms=100)
-                )
-                event = parse_event(data) if data else None
-                if event:
-                    for handler in self._handlers:
-                        handler(event)
-        except asyncio.CancelledError:
-            pass
+                try:
+                    self._hid.write(self._writes.get_nowait())
+                except queue.Empty:
+                    break
+        except Exception as exc:
+            # Without this the thread dies silently and the pad just looks dead to input.
+            self.read_error = exc
+            log.exception("KM16 I/O loop failed")
+
+    def _dispatch(self, event: dict) -> None:
+        for handler in self._handlers:
+            try:
+                handler(event)
+            except Exception:
+                log.exception("error in KM16 event handler")
 
     def close(self) -> None:
-        for task in (self._watchdog_task, self._read_task):
-            if task:
-                task.cancel()
-        self._watchdog_task = self._read_task = None
+        if self._watchdog_task:
+            self._watchdog_task.cancel()
+            self._watchdog_task = None
+        self._stop.set()
+        if self._thread is not None:
+            # Let the owning thread finish its current read and drain pending writes.
+            self._thread.join(timeout=1.0)
+            self._thread = None
         if self._hid is not None:
             self._hid.close()
             self._hid = None

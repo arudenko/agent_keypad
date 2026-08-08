@@ -73,6 +73,9 @@ async def main() -> int:
     device.enable_all_leds(True)
 
     try:
+        print("\nWatch the keypad - LED sequence starts in 3s...")
+        await asyncio.sleep(3)
+
         print("\n[1] all LEDs off")
         device.set_frame(CHAIN_KEYS, [0] * 16, force=True)
         device.set_frame(CHAIN_UNDERGLOW, [0] * 6, force=True)
@@ -108,24 +111,48 @@ async def main() -> int:
             await asyncio.sleep(0.5)
 
         print("\n[7] input test - press all 16 keys, click all 3 encoders, turn each one.")
-        print("    Ctrl+C when done.\n")
+        print("    Each key lights white as it registers. Ctrl+C to stop early.\n")
+        reason = "interrupted"
         while True:
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.25)
+
+            if device.read_error is not None:
+                reason = f"read loop failed: {device.read_error!r}"
+                break
+
+            # Light every key that has registered, so progress is visible on the pad itself.
+            device.set_frame(CHAIN_KEYS, [0xFFFFFF if i in seen_keys else 0x000000 for i in range(16)])
+
+            print(
+                f"\r    keys {len(seen_keys):2}/19   encoders {len(seen_encoders)}/3   "
+                f"(HID reports: {device.reports_received})   ",
+                end="",
+                flush=True,
+            )
             if len(seen_keys) >= 19 and len(seen_encoders) >= 3:
-                print("\nAll 19 keys and 3 encoders seen. Hardware good.")
-                return 0
+                reason = "complete"
+                break
     except KeyboardInterrupt:
-        pass
+        reason = "interrupted"
     finally:
         missing_keys = sorted(set(range(19)) - seen_keys)
         missing_encoders = sorted({16, 17, 18} - seen_encoders)
-        print(f"\nkeys seen: {len(seen_keys)}/19" + (f"  missing: {missing_keys}" if missing_keys else ""))
+        print(f"\n\nexit reason: {reason}")
+        print(f"HID reports received: {device.reports_received} (read calls: {device.reads_attempted})")
+        if device.read_error is not None:
+            print(f"READ ERROR: {device.read_error!r}")
+        elif device.reports_received == 0 and device.reads_attempted > 0:
+            print("No HID reports at all. The read path is alive but the device sent nothing --")
+            print("if you were pressing keys, that points at the firmware, not this script.")
+        print(f"keys seen: {len(seen_keys)}/19" + (f"  missing: {missing_keys}" if missing_keys else ""))
         print(f"encoders turned: {len(seen_encoders)}/3" + (f"  missing: {missing_encoders}" if missing_encoders else ""))
+        if reason == "complete":
+            print("\nAll 19 keys and 3 encoders seen. Hardware good.")
         device.set_frame(CHAIN_KEYS, [0] * 16, force=True)
         device.set_frame(CHAIN_UNDERGLOW, [0] * 6, force=True)
         device.set_watchdog(0)
         device.close()
-    return 0
+    return 0 if reason == "complete" else 1
 
 
 if __name__ == "__main__":

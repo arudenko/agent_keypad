@@ -1,0 +1,13 @@
+diff --git a/firmware/km16/km16.ino b/firmware/km16/km16.ino
+index 97500c9..ba4ea29 100644
+--- a/firmware/km16/km16.ino
++++ b/firmware/km16/km16.ino
+@@ -216,7 +216,7 @@ void loop()
+                         }
+                         break;
+                 }
+-
++                break;
+ 
+             case 0xFF:
+                 // Trigger MCU reset

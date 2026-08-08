@@ -62,14 +62,44 @@ foreach ($tool in 'dfu-util', 'arduino-cli') {
 }
 
 # --- source -------------------------------------------------------------------
+# Pinned rather than tracking HEAD, because we apply local patches on top and an
+# upstream change would silently break them.
+$UPSTREAM_REV = 'ead652e9597a0ccada7d5fa720c26cff0e8b416e'
+
 if (Test-Path (Join-Path $WorkDir '.git')) {
     Write-Host "== Updating RawMacroPad checkout ==" -ForegroundColor Cyan
-    git -C $WorkDir pull --ff-only
+    git -C $WorkDir fetch --quiet origin
 } else {
     Write-Host "== Cloning RawMacroPad ==" -ForegroundColor Cyan
-    git clone https://github.com/toptensoftware/rawMacroPad.git $WorkDir
+    git clone --quiet https://github.com/toptensoftware/rawMacroPad.git $WorkDir
 }
-Write-Host "firmware revision: $(git -C $WorkDir rev-parse --short HEAD)`n"
+
+# Discard any previously applied patches so this is repeatable.
+git -C $WorkDir checkout --quiet --force $UPSTREAM_REV
+git -C $WorkDir clean --quiet -fd 'firmware'
+Write-Host "upstream revision: $(git -C $WorkDir rev-parse --short HEAD)"
+
+# --- local firmware patches ---------------------------------------------------
+$patchDir = Join-Path (Split-Path -Parent $PSScriptRoot) 'firmware\patches'
+$patches = @(Get-ChildItem -Path $patchDir -Filter '*.patch' -ErrorAction SilentlyContinue | Sort-Object Name)
+if ($patches.Count -eq 0) {
+    Write-Host "WARNING: no firmware patches found in $patchDir" -ForegroundColor Yellow
+}
+foreach ($patch in $patches) {
+    Write-Host "applying patch: $($patch.Name)"
+    $applyOutput = Invoke-Native git @('-C', $WorkDir, 'apply', '--verbose', $patch.FullName)
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host $applyOutput
+        Write-Error "failed to apply $($patch.Name) -- refusing to flash unpatched firmware"
+    }
+}
+
+# The 0x06 fall-through reboots the MCU on every single-LED write; never flash without it.
+$sketchSource = Get-Content (Join-Path $WorkDir 'firmware\km16\km16.ino') -Raw
+if ($sketchSource -notmatch '(?s)case 0x06:.*?\n\s+break;\s*\n\s*\n?\s*case 0xFF:') {
+    Write-Error "sanity check failed: case 0x06 still falls through to the 0xFF reset"
+}
+Write-Host "verified: case 0x06 breaks before the 0xFF reset`n" -ForegroundColor Green
 
 # --- toolchain ----------------------------------------------------------------
 Write-Host "== Ensuring STM32 board support ==" -ForegroundColor Cyan
