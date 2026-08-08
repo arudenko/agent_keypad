@@ -18,8 +18,8 @@ Working notes and hard-won protocol details: [`CLAUDE.md`](CLAUDE.md).
 | Phase | State |
 | --- | --- |
 | 0 — inspect environment | **done**, recorded in `CLAUDE.md` |
-| 1 — firmware backup | **not started** — needs `dfu-util` + physical replug |
-| 2 — flash RawMacroPad | **not started** |
+| 1 — firmware backup | toolchain ready, firmware prebuilt — **needs you to enter bootloader mode** |
+| 2 — flash RawMacroPad | blocked on Phase 1 |
 | 3 — hardware self-test | tool ready (`tools/hw_selftest.py`), untested — needs Phase 2 |
 | 4 — Herdr client | **done and verified** against the live session |
 | 5 — integration | daemon written; LED/mapping/protocol unit-tested, end-to-end blocked on Phase 2 |
@@ -38,32 +38,25 @@ py -3.12 -m venv .venv
 
 ## What you need to do next
 
-### 1. Install the flashing toolchain
+### 1. Flashing toolchain — done
 
-`arduino-cli` is in winget:
+Already installed and verified on this machine:
 
-```powershell
-winget install ArduinoSA.CLI
-```
+| | |
+| --- | --- |
+| `arduino-cli` | 1.5.1, `C:\Program Files\Arduino CLI\` (winget `ArduinoSA.CLI`) |
+| `dfu-util` | 0.11, `C:\Soft\dfu-util\win64` — added to the **user** PATH |
+| STM32 core | `STMicroelectronics:stm32@3.0.0` |
+| RawMacroPad | cloned to `%USERPROFILE%\km16-firmware-backup\rawMacroPad` at `ead652e` |
+| Firmware | **compiled**: 22684 bytes, 17% of flash |
 
-`dfu-util` is **not** in winget (checked), and neither Chocolatey nor Scoop is installed on
-this machine. Download the prebuilt Windows binaries instead:
+`dfu-util` is not in winget, and neither Chocolatey nor Scoop is on this machine, so it was
+installed by hand from <https://dfu-util.sourceforge.net/releases/>. A shell opened before
+the PATH edit won't see it — open a new one.
 
-1. Grab `dfu-util-0.11-binaries.tar.xz` from <https://dfu-util.sourceforge.net/releases/>
-2. Extract the `win64` folder somewhere permanent, e.g. `%USERPROFILE%\tools\dfu-util\`
-3. Add that folder to your `PATH`:
-
-```powershell
-$dir = "$env:USERPROFILE\tools\dfu-util"
-[Environment]::SetEnvironmentVariable(
-    'Path', [Environment]::GetEnvironmentVariable('Path','User') + ";$dir", 'User')
-```
-
-Reopen the shell afterwards so `PATH` picks both tools up, then confirm:
-
-```powershell
-dfu-util --version; arduino-cli version
-```
+Note the build output is `km16.ino.bin`, named after the sketch — **not** the
+`firmware.ino.bin` that the upstream readme and the handoff doc both claim. The flash script
+discovers it rather than hardcoding a name.
 
 You will also need a USB driver that `dfu-util` can talk to. On Windows the STM32duino
 bootloader usually needs WinUSB bound to it — use [Zadig](https://zadig.akeo.ie/), select the

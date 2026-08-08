@@ -74,11 +74,19 @@ try {
     Pop-Location
 }
 
-$binary = Join-Path $sketch 'build\STMicroelectronics.stm32.GenF1\firmware.ino.bin'
-if (-not (Test-Path $binary)) {
-    Write-Error "expected build output not found at $binary"
+# arduino-cli names the output after the sketch, so this is km16.ino.bin --
+# NOT the firmware.ino.bin that the upstream readme and the handoff doc both claim.
+# Discover it rather than hardcoding either name.
+$buildDir = Join-Path $sketch 'build\STMicroelectronics.stm32.GenF1'
+$candidates = @(Get-ChildItem -Path $buildDir -Filter '*.ino.bin' -ErrorAction SilentlyContinue)
+if ($candidates.Count -eq 0) {
+    Write-Error "no *.ino.bin found in $buildDir"
 }
-Write-Host "built: $binary ($((Get-Item $binary).Length) bytes)" -ForegroundColor Green
+if ($candidates.Count -gt 1) {
+    Write-Error "ambiguous build output in ${buildDir}: $($candidates.Name -join ', ')"
+}
+$binary = $candidates[0].FullName
+Write-Host "built: $binary ($($candidates[0].Length) bytes)" -ForegroundColor Green
 
 # --- flash --------------------------------------------------------------------
 Write-Host "`n== Bootloader check ==" -ForegroundColor Cyan
