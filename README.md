@@ -18,15 +18,16 @@ Working notes and hard-won protocol details: [`CLAUDE.md`](CLAUDE.md).
 | Phase | State |
 | --- | --- |
 | 0 — inspect environment | **done**, recorded in `CLAUDE.md` |
-| 1 — firmware backup | toolchain ready, firmware prebuilt — **needs you to enter bootloader mode** |
-| 2 — flash RawMacroPad | blocked on Phase 1 |
-| 3 — hardware self-test | tool ready (`tools/hw_selftest.py`), untested — needs Phase 2 |
+| 1 — firmware backup | **done** — 122880 bytes verified, offsite copy, see `docs/firmware-backup.md` |
+| 2 — flash RawMacroPad | **done** — patched build, device live on RAW HID `1209:88bf` |
+| 3 — hardware self-test | **done** — 19/19 keys, 3/3 encoders, all LED chains confirmed |
 | 4 — Herdr client | **done and verified** against the live session |
-| 5 — integration | daemon written; LED/mapping/protocol unit-tested, end-to-end blocked on Phase 2 |
+| 5 — integration | **working** — agents map to keys, LEDs track state, key press focuses |
 | 6 — polish | config, logging, reconnect done; startup service not yet set up |
 
-The keypad is currently on **stock firmware** and still works as a normal VIA macropad.
-Nothing so far has touched the device.
+Known gap: `pane.agent_status_changed` has never been observed firing. LED updates currently
+arrive via the 15 s periodic reconcile, so a state change can lag. Under investigation with
+`tools/diag_status_events.py`.
 
 ## Setup
 
