@@ -1,0 +1,106 @@
+"""Config loading and validation."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+from .leds import DEFAULT_COLORS, parse_color
+
+VALID_KEY_ACTIONS = {"focus_agent", "none"}
+VALID_ROTATE_ACTIONS = {"cycle_attention_agents", "cycle_agents", "none"}
+VALID_PRESS_ACTIONS = {"focus_selected", "escape", "enter", "interrupt", "none"}
+
+
+@dataclass
+class EncoderConfig:
+    rotate: str = "none"
+    press: str = "none"
+
+
+@dataclass
+class Config:
+    session: str | None = None
+    reconnect_seconds: float = 1.0
+    watchdog_ms: int = 2000
+    brightness: float = 0.35
+    underglow: bool = True
+    pulse: bool = True
+    colors: dict[str, int] = field(default_factory=lambda: dict(DEFAULT_COLORS))
+    preserve_slots: bool = True
+    static: dict[int, str] = field(default_factory=dict)
+    key_press: str = "focus_agent"
+    main_encoder: EncoderConfig = field(default_factory=lambda: EncoderConfig("cycle_attention_agents", "focus_selected"))
+    left_encoder: EncoderConfig = field(default_factory=lambda: EncoderConfig("cycle_agents", "escape"))
+    right_encoder: EncoderConfig = field(default_factory=lambda: EncoderConfig("none", "enter"))
+    long_press_ms: int = 600
+    require_long_press_for: list[str] = field(default_factory=lambda: ["enter", "interrupt"])
+
+
+def _encoder(raw: dict[str, Any] | None, default: EncoderConfig, where: str) -> EncoderConfig:
+    if not raw:
+        return default
+    rotate = raw.get("rotate", default.rotate)
+    press = raw.get("press", default.press)
+    if rotate not in VALID_ROTATE_ACTIONS:
+        raise ValueError(f"{where}.rotate: unknown action {rotate!r} (expected one of {sorted(VALID_ROTATE_ACTIONS)})")
+    if press not in VALID_PRESS_ACTIONS:
+        raise ValueError(f"{where}.press: unknown action {press!r} (expected one of {sorted(VALID_PRESS_ACTIONS)})")
+    return EncoderConfig(rotate=rotate, press=press)
+
+
+def load_config(path: str | Path | None = None) -> Config:
+    """Load and validate config.yaml. Invalid config is a hard error, never a silent default."""
+    cfg = Config()
+    if path is None:
+        return cfg
+    path = Path(path)
+    if not path.exists():
+        return cfg
+
+    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+
+    herdr = raw.get("herdr") or {}
+    cfg.session = herdr.get("session")
+    cfg.reconnect_seconds = float(herdr.get("reconnect_seconds", cfg.reconnect_seconds))
+
+    km16 = raw.get("km16") or {}
+    cfg.watchdog_ms = int(km16.get("watchdog_ms", cfg.watchdog_ms))
+    cfg.brightness = float(km16.get("brightness", cfg.brightness))
+    cfg.underglow = bool(km16.get("underglow", cfg.underglow))
+    cfg.pulse = bool(km16.get("pulse", cfg.pulse))
+    if not 0.0 <= cfg.brightness <= 1.0:
+        raise ValueError(f"km16.brightness must be within 0..1, got {cfg.brightness}")
+    if cfg.watchdog_ms and cfg.watchdog_ms < 100:
+        raise ValueError(f"km16.watchdog_ms too small to ping reliably: {cfg.watchdog_ms}")
+
+    for name, value in (raw.get("colors") or {}).items():
+        if name not in DEFAULT_COLORS:
+            raise ValueError(f"colors.{name}: unknown state (expected one of {sorted(DEFAULT_COLORS)})")
+        cfg.colors[name] = parse_color(value)
+
+    mapping = raw.get("mapping") or {}
+    cfg.preserve_slots = bool(mapping.get("preserve_slots", cfg.preserve_slots))
+    for slot, identity in (mapping.get("static") or {}).items():
+        slot = int(slot)
+        if not 0 <= slot < 16:
+            raise ValueError(f"mapping.static: slot {slot} out of range 0..15")
+        cfg.static[slot] = identity
+
+    controls = raw.get("controls") or {}
+    cfg.key_press = controls.get("key_press", cfg.key_press)
+    if cfg.key_press not in VALID_KEY_ACTIONS:
+        raise ValueError(f"controls.key_press: unknown action {cfg.key_press!r}")
+    cfg.main_encoder = _encoder(controls.get("main_encoder"), cfg.main_encoder, "controls.main_encoder")
+    cfg.left_encoder = _encoder(controls.get("left_encoder"), cfg.left_encoder, "controls.left_encoder")
+    cfg.right_encoder = _encoder(controls.get("right_encoder"), cfg.right_encoder, "controls.right_encoder")
+
+    safety = raw.get("safety") or {}
+    cfg.long_press_ms = int(safety.get("long_press_ms", cfg.long_press_ms))
+    if "require_long_press_for" in safety:
+        cfg.require_long_press_for = list(safety["require_long_press_for"])
+
+    return cfg

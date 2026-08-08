@@ -1,0 +1,16 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Firmware backups MUST NOT be committed (device-specific, and we want them
+# stored outside the repo per the handoff safety procedure).
+*.bin
+firmware-backup/
+
+# Local state / logs
+*.log
+state.json
+config.local.yaml

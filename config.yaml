@@ -1,0 +1,51 @@
+# herdr-km16 controller configuration.
+# Everything the controller does should be changeable here, without editing source.
+
+herdr:
+  session: null            # null = default session (resolved via HERDR_SOCKET_PATH)
+  reconnect_seconds: 1
+
+km16:
+  watchdog_ms: 2000        # 0 disables; firmware flashes the layer LED red if we stop pinging
+  brightness: 0.35
+  underglow: true
+  pulse: true
+
+colors:
+  working: "#0066ff"
+  blocked: "#ff0000"
+  done: "#00ff44"
+  idle: "#202020"
+  unknown: "#ff9900"
+  empty: "#000000"
+
+mapping:
+  preserve_slots: true
+  # Pin an agent to a key by Herdr agent name. Unpinned keys are allocated
+  # lowest-free-first and stay put for the life of the agent.
+  static: {}
+    # 0: reviewer
+    # 1: backend
+
+controls:
+  key_press: focus_agent   # focus_agent | none
+
+  main_encoder:            # key index 16
+    rotate: cycle_attention_agents
+    press: focus_selected
+
+  left_encoder:            # key index 17
+    rotate: cycle_agents
+    press: escape
+
+  right_encoder:           # key index 18
+    rotate: none
+    press: enter
+
+safety:
+  # Actions that submit input to an agent need a deliberate long press, so a knocked
+  # knob cannot approve a Claude Code permission prompt.
+  long_press_ms: 600
+  require_long_press_for:
+    - enter
+    - interrupt
