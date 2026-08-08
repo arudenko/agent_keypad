@@ -229,10 +229,24 @@ class KM16:
         self._last_frame.pop(chain, None)
 
     def enable_all_leds(self, enable: bool) -> None:
+        """Master power only (firmware drives PB14). Chains still need enable_chain()."""
         self._write(build_enable_all_leds(enable))
 
     def enable_chain(self, chain: int, enable: bool) -> None:
         self._write(build_enable_chain(chain, enable))
+
+    def power_on_leds(self) -> None:
+        """Bring the LEDs fully up.
+
+        The firmware has three independent switches and *all three default to off*:
+        master power (0x02), the key chain and the underglow chain (0x03 per chain).
+        setKeyLed() only marks the frame dirty when its chain is enabled, so with only
+        the master on, colours are stored and silently never shifted out. Order matters:
+        power first, then chains, because enabling a chain pushes its pixels immediately.
+        """
+        self.enable_all_leds(True)
+        self.enable_chain(CHAIN_KEYS, True)
+        self.enable_chain(CHAIN_UNDERGLOW, True)
 
     def reset(self) -> None:
         self._write(build_reset())

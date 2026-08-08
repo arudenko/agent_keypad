@@ -70,7 +70,7 @@ async def main() -> int:
     device.on_event(on_event)
     device.start_reading()
     device.set_watchdog(2000)
-    device.enable_all_leds(True)
+    device.power_on_leds()
 
     try:
         print("\nWatch the keypad - LED sequence starts in 3s...")

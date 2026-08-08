@@ -142,7 +142,7 @@ class Controller:
             log.info("KM16 connected")
             self.device = device
             device.on_event(self._input_queue.put_nowait)
-            device.enable_all_leds(True)
+            device.power_on_leds()
             device.set_watchdog(self.config.watchdog_ms)
             device.start_reading()
             self.dirty.set()
