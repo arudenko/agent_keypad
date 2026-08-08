@@ -24,6 +24,21 @@ $ErrorActionPreference = 'Stop'
 $EXPECTED_BYTES = 122880
 $FQBN = 'STMicroelectronics:stm32:GenF1:pnum=BLACKPILL_F103CB,upload_method=dfu2Method,xserial=generic,usb=none'
 
+# See backup-km16-firmware.ps1: PowerShell 5.1 turns a native command's redirected stderr
+# into fatal ErrorRecords under $ErrorActionPreference='Stop'. dfu-util uses stderr for
+# ordinary progress output.
+function Invoke-Native {
+    param([Parameter(Mandatory)][string]$Exe, [string[]]$Arguments = @())
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $output = & $Exe @Arguments 2>&1 | ForEach-Object { $_.ToString() }
+        return ($output -join [Environment]::NewLine)
+    } finally {
+        $ErrorActionPreference = $prev
+    }
+}
+
 # --- gate on a verified backup ------------------------------------------------
 if (-not $SkipBackupCheck) {
     if (-not (Test-Path $BackupPath)) {
@@ -90,7 +105,7 @@ Write-Host "built: $binary ($($candidates[0].Length) bytes)" -ForegroundColor Gr
 
 # --- flash --------------------------------------------------------------------
 Write-Host "`n== Bootloader check ==" -ForegroundColor Cyan
-$list = & dfu-util -l 2>&1 | Out-String
+$list = Invoke-Native dfu-util @('-l')
 if ($list -notmatch '1eaf:0003') {
     Write-Host "STOP: bootloader 1eaf:0003 not found." -ForegroundColor Red
     Write-Host "Unplug the KM16, hold the TOP-LEFT key, plug it back in, then re-run."
@@ -98,9 +113,13 @@ if ($list -notmatch '1eaf:0003') {
 }
 
 Write-Host "`n== Flashing ==" -ForegroundColor Cyan
-& dfu-util -d 1eaf:0003 -a 2 -D $binary
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "Flash reported a failure. If the device is unresponsive, restore with:" -ForegroundColor Red
+$flashOutput = Invoke-Native dfu-util @('-d', '1eaf:0003', '-a', '2', '-D', $binary)
+Write-Host $flashOutput
+
+# dfu-util's exit code is unreliable here (it often reports the detach as an error), so
+# treat the transfer summary as the success signal.
+if ($flashOutput -notmatch 'File downloaded successfully|Download done') {
+    Write-Host "`nFlash did not report success. If the device is unresponsive, restore with:" -ForegroundColor Red
     Write-Host "  .\scripts\restore-km16-firmware.ps1"
     exit 1
 }

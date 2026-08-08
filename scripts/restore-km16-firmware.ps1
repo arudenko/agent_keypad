@@ -16,6 +16,19 @@ param(
 $ErrorActionPreference = 'Stop'
 $EXPECTED_BYTES = 122880
 
+# See backup-km16-firmware.ps1 for why native stderr needs this wrapper on PowerShell 5.1.
+function Invoke-Native {
+    param([Parameter(Mandatory)][string]$Exe, [string[]]$Arguments = @())
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $output = & $Exe @Arguments 2>&1 | ForEach-Object { $_.ToString() }
+        return ($output -join [Environment]::NewLine)
+    } finally {
+        $ErrorActionPreference = $prev
+    }
+}
+
 if (-not (Get-Command dfu-util -ErrorAction SilentlyContinue)) {
     Write-Error "dfu-util not found on PATH."
 }
@@ -30,7 +43,7 @@ if ($size -ne $EXPECTED_BYTES) {
     if ($answer -ne 'yes') { exit 1 }
 }
 
-$list = & dfu-util -l 2>&1 | Out-String
+$list = Invoke-Native dfu-util @('-l')
 if ($list -notmatch '1eaf:0003') {
     Write-Host "Bootloader 1eaf:0003 not found." -ForegroundColor Red
     Write-Host "Unplug the KM16, hold the TOP-LEFT key, plug it back in, then re-run."
@@ -38,7 +51,8 @@ if ($list -notmatch '1eaf:0003') {
 }
 
 Write-Host "== Restoring $InputPath ==" -ForegroundColor Cyan
-& dfu-util -d 1eaf:0003 -a 2 -D $InputPath
+Write-Host (Invoke-Native dfu-util @('-d', '1eaf:0003', '-a', '2', '-D', $InputPath))
 
 Write-Host "`nRestored. Replug the device normally; it should enumerate as the stock KM16" -ForegroundColor Green
 Write-Host "(VID 0x5343 / PID 0x0080) and work with VIA again."
+exit 0

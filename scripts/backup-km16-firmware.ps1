@@ -22,6 +22,22 @@ param(
 $ErrorActionPreference = 'Stop'
 $EXPECTED_BYTES = 122880
 
+# PowerShell 5.1 wraps a native command's redirected stderr in ErrorRecords, which
+# $ErrorActionPreference='Stop' then treats as fatal. dfu-util writes its normal progress
+# and its harmless "cannot open <other device>" notes to stderr, so capture output with
+# the preference relaxed and flatten the records back to plain text.
+function Invoke-Native {
+    param([Parameter(Mandatory)][string]$Exe, [string[]]$Arguments = @())
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $output = & $Exe @Arguments 2>&1 | ForEach-Object { $_.ToString() }
+        return ($output -join [Environment]::NewLine)
+    } finally {
+        $ErrorActionPreference = $prev
+    }
+}
+
 if (-not (Get-Command dfu-util -ErrorAction SilentlyContinue)) {
     Write-Error "dfu-util not found on PATH. Install it: winget install dfu-util   (or https://dfu-util.sourceforge.net/releases/)"
 }
@@ -29,7 +45,7 @@ if (-not (Get-Command dfu-util -ErrorAction SilentlyContinue)) {
 Write-Host "== Checking for the STM32duino bootloader ==" -ForegroundColor Cyan
 Write-Host "If nothing is listed, unplug the KM16, hold the TOP-LEFT key, and plug it back in.`n"
 
-$list = & dfu-util -l 2>&1 | Out-String
+$list = Invoke-Native dfu-util @('-l')
 Write-Host $list
 
 if ($list -notmatch '1eaf:0003') {
@@ -54,7 +70,7 @@ if (Test-Path $OutputPath) {
 Write-Host "== Reading stock firmware to $OutputPath ==" -ForegroundColor Cyan
 Write-Host "'Error during upload (LIBUSB_ERROR_PIPE)' at the end is EXPECTED.`n"
 
-& dfu-util -d 1eaf:0003 -a 2 -U $OutputPath
+Write-Host (Invoke-Native dfu-util @('-d', '1eaf:0003', '-a', '2', '-U', $OutputPath))
 Write-Host ""
 
 if (-not (Test-Path $OutputPath)) {
@@ -70,5 +86,10 @@ if ($size -ne $EXPECTED_BYTES) {
 }
 
 Write-Host "Backup verified: $size bytes at $OutputPath" -ForegroundColor Green
+Write-Host "SHA256: $((Get-FileHash $OutputPath -Algorithm SHA256).Hash)"
 Write-Host "Copy this file somewhere safe (it is intentionally not version controlled)."
 Write-Host "Restore with: .\scripts\restore-km16-firmware.ps1 -InputPath `"$OutputPath`""
+
+# dfu-util exits non-zero after the expected LIBUSB_ERROR_PIPE; the verified byte count is
+# the real success signal, so don't leak its exit code to the caller.
+exit 0
