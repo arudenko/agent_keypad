@@ -31,6 +31,21 @@ mapping:
     # 0: reviewer
     # 1: backend
 
+# Bottom row = actions instead of agents. These keys act on the SELECTED agent (the one
+# you last pressed or cycled to, shown brighter on the pad). Removing entries here hands
+# the keys back to agents; with all four bound there are 12 agent slots (keys 0-11).
+action_keys:
+  12: approve          # send Enter  -- accepts the highlighted prompt option
+  13: reject           # send Esc    -- declines
+  14: interrupt        # send Ctrl+C -- stops the agent
+  15: next_attention   # select the next agent needing attention; sends nothing
+
+action_colors:
+  approve: "#00ff44"
+  reject: "#ff0000"
+  interrupt: "#ff9900"
+  next_attention: "#0066ff"
+
 controls:
   key_press: focus_agent   # focus_agent | none
 
@@ -51,5 +66,7 @@ safety:
   # knob cannot approve a Claude Code permission prompt.
   long_press_ms: 600
   require_long_press_for:
-    - enter
+    - approve        # bottom-row approve key
+    - enter          # right encoder press
     - interrupt
+    # `reject` and `next_attention` stay instant: neither can approve anything.

@@ -8,11 +8,13 @@ from typing import Any
 
 import yaml
 
+from .action_types import DEFAULT_ACTION_COLORS, VALID_ACTION_KEYS
 from .leds import DEFAULT_COLORS, parse_color
 
 VALID_KEY_ACTIONS = {"focus_agent", "none"}
 VALID_ROTATE_ACTIONS = {"cycle_attention_agents", "cycle_agents", "none"}
 VALID_PRESS_ACTIONS = {"focus_selected", "escape", "enter", "interrupt", "none"}
+
 
 
 @dataclass
@@ -37,8 +39,12 @@ class Config:
     main_encoder: EncoderConfig = field(default_factory=lambda: EncoderConfig("cycle_attention_agents", "focus_selected"))
     left_encoder: EncoderConfig = field(default_factory=lambda: EncoderConfig("cycle_agents", "escape"))
     right_encoder: EncoderConfig = field(default_factory=lambda: EncoderConfig("none", "enter"))
+    action_keys: dict[int, str] = field(default_factory=dict)
+    action_colors: dict[str, int] = field(default_factory=lambda: dict(DEFAULT_ACTION_COLORS))
     long_press_ms: int = 600
-    require_long_press_for: list[str] = field(default_factory=lambda: ["enter", "interrupt"])
+    require_long_press_for: list[str] = field(
+        default_factory=lambda: ["approve", "enter", "interrupt"]
+    )
 
 
 def _encoder(raw: dict[str, Any] | None, default: EncoderConfig, where: str) -> EncoderConfig:
@@ -101,6 +107,30 @@ def load_config(path: str | Path | None = None) -> Config:
     cfg.main_encoder = _encoder(controls.get("main_encoder"), cfg.main_encoder, "controls.main_encoder")
     cfg.left_encoder = _encoder(controls.get("left_encoder"), cfg.left_encoder, "controls.left_encoder")
     cfg.right_encoder = _encoder(controls.get("right_encoder"), cfg.right_encoder, "controls.right_encoder")
+
+    for slot, action in (raw.get("action_keys") or {}).items():
+        slot = int(slot)
+        if not 0 <= slot < 16:
+            raise ValueError(f"action_keys: slot {slot} out of range 0..15")
+        if action not in VALID_ACTION_KEYS:
+            raise ValueError(
+                f"action_keys.{slot}: unknown action {action!r} "
+                f"(expected one of {sorted(VALID_ACTION_KEYS)})"
+            )
+        if action != "none":
+            cfg.action_keys[slot] = action
+    # A key cannot be both an action and a pinned agent slot.
+    clash = set(cfg.action_keys) & set(cfg.static)
+    if clash:
+        raise ValueError(f"slots {sorted(clash)} are both action_keys and mapping.static")
+
+    for name, value in (raw.get("action_colors") or {}).items():
+        if name not in DEFAULT_ACTION_COLORS:
+            raise ValueError(
+                f"action_colors.{name}: unknown action "
+                f"(expected one of {sorted(DEFAULT_ACTION_COLORS)})"
+            )
+        cfg.action_colors[name] = parse_color(value)
 
     safety = raw.get("safety") or {}
     cfg.long_press_ms = int(safety.get("long_press_ms", cfg.long_press_ms))

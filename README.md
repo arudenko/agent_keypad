@@ -79,18 +79,24 @@ alive.
 
 ### Key mapping
 
-The 16 keys are agent slots, numbered top-left to bottom-right:
+Keys are numbered top-left to bottom-right. The top three rows are agent slots; the bottom
+row is bound to actions, so there are **12 agent slots**:
 
 ```
-+-----+-----+-----+-----+
-|  0  |  1  |  2  |  3  |
-+-----+-----+-----+-----+
-|  4  |  5  |  6  |  7  |
-+-----+-----+-----+-----+
-|  8  |  9  | 10  | 11  |
-+-----+-----+-----+-----+
-| 12  | 13  | 14  | 15  |
-+-----+-----+-----+-----+
++---------+---------+---------+---------+
+|    0    |    1    |    2    |    3    |
+|         |     agent slots             |
++---------+---------+---------+---------+
+|    4    |    5    |    6    |    7    |
+|         |  colour = agent state       |
++---------+---------+---------+---------+
+|    8    |    9    |   10    |   11    |
+|         |                             |
++---------+---------+---------+---------+
+|   12    |   13    |   14    |   15    |
+| APPROVE | REJECT  |  STOP   |  NEXT   |
+|  green  |   red   |  amber  |  blue   |
++---------+---------+---------+---------+
 ```
 
 Upstream's readme confusingly calls this "top-left to bottom-right in RTL order". It is plain
@@ -114,7 +120,39 @@ mapping:
     1: backend
 ```
 
-A pinned key stays reserved (and unlit) until that agent shows up.
+A pinned key stays reserved (and unlit) until that agent shows up. Pinning to an action key
+is a config error, not a silent override.
+
+### Action keys (bottom row)
+
+These act on the **selected** agent — the one you last pressed or cycled to, shown at double
+brightness. They never change Herdr focus, and they do nothing at all when no agent is
+selected (their keys dim to a quarter brightness to show that).
+
+| Key | Action | Sends | Guard |
+| --- | --- | --- | --- |
+| 12 | **Approve** | `enter` — accepts the highlighted prompt option | **hold 600 ms** |
+| 13 | **Reject** | `esc` — declines | instant |
+| 14 | **Interrupt** | `ctrl+c` — stops the agent | **hold 600 ms** |
+| 15 | **Next** | *nothing* — selects the next agent needing attention | instant |
+
+Approve sends Enter, which accepts **whichever option Claude Code currently has highlighted**
+— normally "Yes", but it is not guaranteed to be. Approve is a fast path for prompts you have
+already read, not a substitute for reading them. Reject and Next are instant because neither
+can approve anything.
+
+Action keys are steady and never pulse: they are controls, not status.
+
+Rebind or remove any of them in `config.yaml`; each key you free goes back to being an agent
+slot.
+
+```yaml
+action_keys:
+  12: approve      # approve | reject | interrupt | next_attention | none
+  13: reject
+  14: interrupt
+  15: next_attention
+```
 
 ### Encoders
 
@@ -135,15 +173,18 @@ only contacted when you press.
 
 ### Safety-critical behaviour
 
-`enter` and `interrupt` are gated behind a **600 ms long press** (`safety.long_press_ms`), so
-a knocked knob cannot accept a Claude Code permission request. A short press is logged and
-ignored. Which actions are gated is configurable:
+`approve`, `enter` and `interrupt` are gated behind a **600 ms long press**
+(`safety.long_press_ms`), so a knocked key or knob cannot accept a Claude Code permission
+request. A short press is logged and ignored. Which actions are gated is configurable:
 
 ```yaml
 safety:
   long_press_ms: 600
-  require_long_press_for: [enter, interrupt]
+  require_long_press_for: [approve, enter, interrupt]
 ```
+
+**Pressing an agent key still only focuses.** Approving is a separate, deliberate action on a
+separate key with a hold — selecting an agent never approves anything on its own.
 
 Keys are debounced at 50 ms. Every control action is logged.
 

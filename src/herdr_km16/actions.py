@@ -15,15 +15,13 @@ import logging
 import time
 from dataclasses import dataclass, field
 
+from .action_types import ACTIONS_NEED_TARGET, KEY_NAMES
 from .config import Config
 from .herdr import HerdrClient, HerdrError
 from .km16 import KEY_COUNT, KEY_LEFT_ENCODER, KEY_MAIN_ENCODER, KEY_RIGHT_ENCODER
 from .mapping import SlotMap
 
 log = logging.getLogger("herdr_km16.actions")
-
-# Herdr's canonical key names.
-KEY_NAMES = {"escape": "esc", "enter": "enter", "interrupt": "ctrl+c"}
 
 DEBOUNCE_SECONDS = 0.05
 
@@ -86,6 +84,28 @@ class ActionRouter:
         except HerdrError as exc:
             log.warning("send_keys %s to %s failed: %s", key, agent.key, exc)
 
+    async def run_action(self, action: str, held_ms: float) -> None:
+        """Run a bottom-row action key against the selected agent."""
+        if action == "next_attention":
+            # Pure navigation: moves the selection, sends nothing to any agent.
+            self.cycle("cycle_attention_agents", 1)
+            return
+
+        # `self.selected or -1` would be wrong here: slot 0 is falsy.
+        target = self.slots.agent_at(self.selected) if self.selected is not None else None
+        if action in ACTIONS_NEED_TARGET and target is None:
+            log.info("action %r ignored: no agent selected", action)
+            return
+
+        if action in self.config.require_long_press_for and held_ms < self.config.long_press_ms:
+            log.info(
+                "ignored short press for guarded action %r (%.0fms < %dms)",
+                action, held_ms, self.config.long_press_ms,
+            )
+            return
+
+        await self.send_named_key(action)
+
     # --- physical events --------------------------------------------------
 
     def _debounced(self, key: int) -> bool:
@@ -112,7 +132,10 @@ class ActionRouter:
         held_ms = (time.monotonic() - self._press_started.pop(key, time.monotonic())) * 1000
 
         if key < KEY_COUNT:
-            if self.config.key_press == "focus_agent":
+            action = self.config.action_keys.get(key)
+            if action:
+                await self.run_action(action, held_ms)
+            elif self.config.key_press == "focus_agent":
                 await self.focus_slot(key)
             return
 

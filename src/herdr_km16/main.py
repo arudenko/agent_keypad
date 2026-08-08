@@ -52,12 +52,18 @@ class Controller:
     def __init__(self, config: Config):
         self.config = config
         self.client = HerdrClient()
-        self.slots = SlotMap(static=config.static, preserve_slots=config.preserve_slots)
+        self.slots = SlotMap(
+            static=config.static,
+            preserve_slots=config.preserve_slots,
+            action_slots=frozenset(config.action_keys),
+        )
         self.renderer = LedRenderer(
             colors=config.colors,
             brightness=config.brightness,
             underglow=config.underglow,
             pulse=config.pulse,
+            action_keys=config.action_keys,
+            action_colors=config.action_colors,
         )
         self.router = ActionRouter(config=config, client=self.client, slots=self.slots)
         self.device: KM16 | None = None

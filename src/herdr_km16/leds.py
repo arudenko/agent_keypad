@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import math
 
+from .action_types import ACTIONS_NEED_TARGET
 from .km16 import CHAIN_SIZES, CHAIN_UNDERGLOW
 from .mapping import SlotMap
+
+# How far to dim an action key that currently has nothing to act on.
+INACTIVE_ACTION_DIM = 0.25
 
 DEFAULT_COLORS = {
     "working": 0x0066FF,
@@ -50,6 +54,8 @@ class LedRenderer:
         selected_boost: float = 2.0,
         underglow: bool = True,
         pulse: bool = True,
+        action_keys: dict[int, str] | None = None,
+        action_colors: dict[str, int] | None = None,
     ):
         self.colors = dict(DEFAULT_COLORS)
         if colors:
@@ -58,6 +64,8 @@ class LedRenderer:
         self.selected_boost = selected_boost
         self.underglow = underglow
         self.pulse = pulse
+        self.action_keys = dict(action_keys or {})
+        self.action_colors = {k: parse_color(v) for k, v in (action_colors or {}).items()}
 
     def color_for(self, status: str | None) -> int:
         if status is None:
@@ -66,8 +74,19 @@ class LedRenderer:
 
     def key_frame(self, slots: SlotMap, selected: int | None = None, phase: float = 0.0) -> list[int]:
         """The 16-entry under-key frame."""
+        has_target = slots.agent_at(selected) is not None if selected is not None else False
         frame = []
         for slot in range(slots.slot_count):
+            action = self.action_keys.get(slot)
+            if action:
+                # Action keys are steady and never pulse; they are controls, not status.
+                # Dim the ones that need a target while nothing is selected.
+                factor = self.brightness
+                if action in ACTIONS_NEED_TARGET and not has_target:
+                    factor *= INACTIVE_ACTION_DIM
+                frame.append(scale(self.action_colors.get(action, self.colors["unknown"]), factor))
+                continue
+
             agent = slots.agent_at(slot)
             if agent is None:
                 frame.append(self.colors["empty"])

@@ -36,14 +36,22 @@ class SlotMap:
     slot_count: int = SLOT_COUNT
     static: dict[int, str] = field(default_factory=dict)
     preserve_slots: bool = True
+    # Keys bound to actions instead of agents; never allocated to an agent.
+    action_slots: frozenset[int] = frozenset()
     _slots: list[str | None] = field(default_factory=list, init=False)
     _agents: dict[str, Agent] = field(default_factory=dict, init=False)
 
     def __post_init__(self) -> None:
         self._slots = [None] * self.slot_count
+        self.action_slots = frozenset(self.action_slots)
         for slot, identity in self.static.items():
-            if 0 <= slot < self.slot_count:
+            if 0 <= slot < self.slot_count and slot not in self.action_slots:
                 self._slots[slot] = identity
+
+    @property
+    def agent_capacity(self) -> int:
+        """How many agents the pad can show, once action keys are taken out."""
+        return self.slot_count - len(self.action_slots)
 
     # --- queries ----------------------------------------------------------
 
@@ -84,7 +92,7 @@ class SlotMap:
 
     def _reserved_for(self, identity: str) -> int | None:
         for slot, pinned in self.static.items():
-            if pinned == identity and 0 <= slot < self.slot_count:
+            if pinned == identity and 0 <= slot < self.slot_count and slot not in self.action_slots:
                 return slot
         return None
 
@@ -95,6 +103,8 @@ class SlotMap:
             return pinned
         pinned_identities = set(self.static.values())
         for slot in range(self.slot_count):
+            if slot in self.action_slots:
+                continue
             occupant = self._slots[slot]
             # A static reservation stays empty until its agent shows up.
             if occupant is None and self.static.get(slot) is None:

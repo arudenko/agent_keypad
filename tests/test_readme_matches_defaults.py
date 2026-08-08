@@ -42,10 +42,22 @@ def test_readme_documents_encoder_indices():
 
 
 def test_readme_key_grid_covers_every_slot():
-    grid = re.search(r"\|  0  \|.*?\| 15  \|", README, re.S)
-    assert grid, "4x4 key grid missing"
-    numbers = [int(n) for n in re.findall(r"\b(\d+)\b", grid.group(0))]
-    assert sorted(numbers) == list(range(KEY_COUNT))
+    """The grid must name all 16 keys, whatever cell width it is drawn with."""
+    grids = [b for b in re.findall(r"```(.*?)```", README, re.S) if "|" in b and "0" in b]
+    matching = [
+        g for g in grids
+        if sorted({int(n) for n in re.findall(r"\b(\d{1,2})\b", g)}) == list(range(KEY_COUNT))
+    ]
+    assert matching, "no fenced block draws all 16 keys exactly once"
+
+
+def test_readme_documents_every_action_key_binding():
+    from herdr_km16.config import load_config
+
+    cfg = load_config(Path(__file__).resolve().parent.parent / "config.yaml")
+    for slot, action in cfg.action_keys.items():
+        assert f"| {slot} |" in README, f"action key {slot} missing from the table"
+        assert action.split("_")[0] in README.lower(), f"action {action} not described"
 
 
 def test_readme_matches_shipped_config():
