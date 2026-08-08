@@ -123,12 +123,14 @@ async def main() -> int:
             # Light every key that has registered, so progress is visible on the pad itself.
             device.set_frame(CHAIN_KEYS, [0xFFFFFF if i in seen_keys else 0x000000 for i in range(16)])
 
-            print(
-                f"\r    keys {len(seen_keys):2}/19   encoders {len(seen_encoders)}/3   "
-                f"(HID reports: {device.reports_received})   ",
-                end="",
-                flush=True,
-            )
+            # Only redraw in place on a real terminal; piped output would repeat the line.
+            if sys.stdout.isatty():
+                print(
+                    f"\r    keys {len(seen_keys):2}/19   encoders {len(seen_encoders)}/3   "
+                    f"(HID reports: {device.reports_received})   ",
+                    end="",
+                    flush=True,
+                )
             if len(seen_keys) >= 19 and len(seen_encoders) >= 3:
                 reason = "complete"
                 break
