@@ -3,8 +3,9 @@
 An MMD KM16 macropad as a bidirectional physical control surface for the Claude Code agents
 running inside [Herdr](https://herdr.dev).
 
-- Each of the 16 keys is a live agent. Press one to focus it.
+- The top 12 keys are live agents. Press one to focus it.
 - Each key's RGB shows that agent's state — see [Using the pad](#using-the-pad).
+- The bottom row approves, rejects, interrupts, or jumps to whatever needs you next.
 - The 6 underglow LEDs summarise the whole session at a glance.
 - Three encoders navigate agents and send Esc / Enter.
 - Runs over RAW HID, so it works regardless of which desktop app has keyboard focus.
@@ -21,12 +22,14 @@ Working notes and hard-won protocol details: [`CLAUDE.md`](CLAUDE.md).
 | 2 — flash RawMacroPad | **done** — patched build, device live on RAW HID `1209:88bf` |
 | 3 — hardware self-test | **done** — 19/19 keys, 3/3 encoders, all LED chains confirmed |
 | 4 — Herdr client | **done and verified** against the live session |
-| 5 — integration | **working** — agents map to keys, LEDs track state, key press focuses |
+| 5 — integration | **working** — agents map to keys, LEDs track state, keys focus and act |
 | 6 — polish | config, logging, reconnect done; startup service not yet set up |
 
-Known gap: `pane.agent_status_changed` has never been observed firing. LED updates therefore
-arrive via the periodic resync (`herdr.poll_seconds`, default 1.5 s) rather than events.
-Under investigation with `tools/diag_status_events.py`.
+Known gap: `pane.agent_status_changed` has never been observed firing, so LED updates arrive
+via the periodic resync (`herdr.poll_seconds`, default 1.5 s) rather than events. This costs
+nothing measurable — `agent.list` is 0.69 ms — but it is polling where the API offers push.
+`tools/diag_event_vs_poll.py` correlates real transitions against delivered events to settle
+whether that is a Herdr limitation or our subscription.
 
 ## Using the pad
 
@@ -105,9 +108,9 @@ row-major, left to right. The physical LED strip does zigzag, but the firmware c
 logical indices and key *N* always lights LED *N*. Confirmed on this unit by
 `tools/hw_selftest.py`.
 
-**Pressing a key focuses that agent in Herdr, and nothing else.** It never answers a prompt,
-never sends a keystroke, and never approves a `blocked` agent. Pressing an empty key does
-nothing.
+**Pressing an agent key focuses that agent in Herdr, and nothing else.** It never answers a
+prompt, never sends a keystroke, and never approves a `blocked` agent. Pressing an empty key
+does nothing. Sending input is the bottom row's job, described below.
 
 Slots are **sticky**: an agent keeps its key for as long as it is alive, new agents take the
 lowest free key, and a state change never reshuffles the pad. When an agent exits, its key
@@ -328,6 +331,12 @@ config.yaml        all tunable behaviour
 docs/              committed Herdr schema + skill doc (regenerate after Herdr updates)
 scripts/           firmware backup / flash / restore, schema refresh
 src/herdr_km16/    the daemon
-tools/             interactive probes for Phase 3 (hardware) and Phase 4 (Herdr)
+tools/             hardware + Herdr probes:
+                     check_device.py       what the pad enumerates as
+                     hw_selftest.py        LEDs, keys, encoders (Phase 3)
+                     herdr_watch.py        agents, slots, LED frame, events (Phase 4)
+                     diag_read.py          isolate HID read failures
+                     diag_chains.py        find which LED command misbehaves
+                     diag_event_vs_poll.py transitions vs events delivered
 tests/             unit tests; no hardware or Herdr required
 ```

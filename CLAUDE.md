@@ -18,9 +18,9 @@ Read that once; this file is the working reference.
 | Herdr | 0.8.0-preview.2026-08-04-d78e3d3b5126, **protocol 19** |
 | Herdr socket | `%APPDATA%\herdr\herdr.sock` via `HERDR_SOCKET_PATH` |
 | KM16 (stock) | USB `VID 0x5343 / PID 0x0080`, product string `KM16` |
-| KM16 (after flash) | RAW HID `VID 0x1209 / PID 0x88BF`, 64-byte packets |
-| dfu-util | **not installed** |
-| arduino-cli | **not installed** |
+| KM16 (now) | **flashed**, RAW HID `VID 0x1209 / PID 0x88BF`, 64-byte packets |
+| dfu-util | 0.11, `C:\Soft\dfu-util\win64` (on user PATH; not in winget) |
+| arduino-cli | 1.5.1, `C:\Program Files\Arduino CLI\`; STM32 core 3.0.0 |
 
 Claude Code runs *inside* Herdr here, so `HERDR_ENV=1` and this session is itself one of the
 agents the keypad will control. Handy for testing; also means a careless `agent.send_keys`
@@ -166,6 +166,19 @@ These are not optional — the keypad can drive agents that execute shell comman
 
 ## Status
 
-Phase 0 (environment inspection) and the Herdr client are done and verified against the live
-session. The device is still on **stock firmware** — Phases 1–2 need `dfu-util`, `arduino-cli`
-and physical unplug/replug, so they cannot be automated. See `README.md` for where to pick up.
+All phases through integration are done and verified on hardware:
+
+- Stock firmware backed up (122880 bytes, hash in `docs/firmware-backup.md`) with an
+  offsite copy. Restore procedure is scripted and the bootloader identity matched exactly.
+- **Patched** RawMacroPad firmware flashed; device live on `1209:88bf`.
+- 19/19 keys, 3/3 encoders and all three LED chains confirmed by `tools/hw_selftest.py`.
+- Daemon drives the pad from live agent state; keys focus, bottom row acts.
+
+Remaining: no startup service yet, and `pane.agent_status_changed` has never been seen
+firing, so `reconcile_loop` polling (`herdr.poll_seconds`, 1.5 s) is the primary path for
+status changes rather than a backstop. `tools/diag_event_vs_poll.py` correlates real
+transitions against delivered events to settle whether that is a Herdr limitation.
+
+Getting into DFU needs WinUSB bound to the bootloader via Zadig (`C:\Soft\zadig-2.9.exe`);
+without it `dfu-util` sees `1eaf:0003` but cannot open it. Enter bootloader mode by holding
+the top-left key while plugging in USB.

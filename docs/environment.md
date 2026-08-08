@@ -11,8 +11,10 @@ Herdr or firmware change; `scripts/refresh-herdr-schema.ps1` regenerates the sch
 | Python | 3.12.10 in `.venv` (also available: 3.14 via `py -3.14`) |
 | Node | v24.14.0 |
 | git | 2.53.0.windows.2 |
-| dfu-util | not installed |
-| arduino-cli | not installed |
+| STM32 core | `STMicroelectronics:stm32@3.0.0` |
+| Zadig | 2.9 at `C:\Soft\zadig-2.9.exe`, WinUSB bound to the bootloader |
+| dfu-util | 0.11 at `C:\Soft\dfu-util\win64`, added to the user PATH |
+| arduino-cli | 1.5.1 at `C:\Program Files\Arduino CLI\` (winget `ArduinoSA.CLI`) |
 
 ## Herdr
 
@@ -57,16 +59,23 @@ uses are `ping`, `session.snapshot`, `agent.list`, `agent.focus`, `agent.send_ke
 
 ## KM16
 
-Currently on **stock firmware**, enumerating as:
+**Flashed** with patched RawMacroPad firmware on 2026-08-08. Now enumerates as:
 
 | | |
 | --- | --- |
-| VID / PID | `0x5343` / `0x0080` |
-| Product string | `KM16` |
-| Instance | `USB\VID_5343&PID_0080\...` |
-| Interfaces | composite; 4 HID interfaces (MI_00..MI_03) |
+| VID / PID | `0x1209` / `0x88BF` |
+| Manufacturer | `Topten Software` |
+| Product | `RAW HID Macropad` |
+| Usage page / usage | `0xff00` / `0x0001` (vendor-defined) |
+| Interfaces | 1 |
 
-After flashing RawMacroPad it becomes RAW HID `0x1209` / `0x88BF`.
+Before flashing it was the stock `0x5343` / `0x0080`, product string `KM16`, a composite
+device with 4 HID interfaces. `KM16.stock_firmware_present()` still checks for those IDs so
+the daemon can say something useful if the pad is ever reverted.
+
+In DFU mode it appears as `1eaf:0003` "SmartBoot", serial `LLM 003`. Windows binds no driver
+to it by default, so `dfu-util` finds it but fails with `LIBUSB_ERROR_NOT_SUPPORTED` until
+WinUSB is attached with Zadig.
 
 `hidapi` 0.15.0 sees the device fine from the venv with no extra driver work — that applies to
 the HID interfaces only. DFU is a different matter and needs WinUSB via Zadig.
@@ -75,10 +84,25 @@ the HID interfaces only. DFU is a different matter and needs WinUSB via Zadig.
 
 Inspected at commit `ead652e9597a0ccada7d5fa720c26cff0e8b416e` (2026-02-20).
 
-The `set_led()` bug described in the handoff is **still present** in both the Python and Node
-clients: they send command `0x04` (set whole chain to one colour) plus an index byte, where the
-protocol spec and the firmware both define `0x06` for a single LED. Verified against
-`readme.md`, `python/raw_macro_pad.py` and `firmware/km16/km16.ino`.
+Two bugs, both confirmed at that revision.
+
+**Client bug** (the one the handoff predicted): the Python and Node clients send command
+`0x04` (set whole chain to one colour) plus an index byte, where the protocol spec and the
+firmware both define `0x06` for a single LED. Verified against `readme.md`,
+`python/raw_macro_pad.py` and `firmware/km16/km16.ino`.
+
+**Firmware bug** (found here, undocumented upstream): `case 0x06:` in `km16.ino` has no
+`break;` and falls through into `case 0xFF: NVIC_SystemReset()`, so a correct single-LED
+write reboots the MCU. Symptom is `OSError('read error')` about a second later as the device
+re-enumerates. Patched by `firmware/patches/0001-*.patch`; the flash script refuses to build
+without it. The two bugs mask each other -- upstream's client never reaches the broken case,
+so fixing the client is what exposes the firmware.
+
+**LED chains default to off.** `KM16.h` has three independent switches -- master power
+(`0x02`, PB14), key chain and underglow (`0x03` per chain, PB13/PB12) -- and all start
+`false`. `setKeyLed()` only marks the frame dirty when its chain is enabled, so with only the
+master on, colours are stored and silently never shifted out. `KM16.power_on_leds()` sends
+all three in order.
 
 Firmware buffer indexing, for cross-checking packet builders: the firmware's `buf[n]`
 corresponds to host packet byte `n+1`, because the host prepends a `0x00` report ID.
