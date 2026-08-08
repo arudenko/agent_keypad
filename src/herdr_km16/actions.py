@@ -11,6 +11,7 @@ Safety model (see CLAUDE.md §Safety rules):
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
@@ -25,6 +26,9 @@ log = logging.getLogger("herdr_km16.actions")
 
 DEBOUNCE_SECONDS = 0.05
 
+# How long the knob must rest before its selection is focused.
+FOCUS_COALESCE_SECONDS = 0.15
+
 
 @dataclass
 class ActionRouter:
@@ -34,6 +38,7 @@ class ActionRouter:
     selected: int | None = None
     _press_started: dict[int, float] = field(default_factory=dict, init=False)
     _last_press: dict[int, float] = field(default_factory=dict, init=False)
+    _focus_task: object = field(default=None, init=False)
 
     # --- selection --------------------------------------------------------
 
@@ -154,9 +159,31 @@ class ActionRouter:
             return
         await self.send_named_key(action)
 
+    def _schedule_focus(self) -> None:
+        """Focus the selection once the knob settles.
+
+        A spin emits a detent every few milliseconds; focusing on each one would hammer
+        Herdr and strobe the UI through every agent on the way past. Only the resting
+        position is worth focusing, so each detent cancels the previous pending focus.
+        """
+        if self._focus_task is not None:
+            self._focus_task.cancel()
+
+        async def settle() -> None:
+            try:
+                await asyncio.sleep(FOCUS_COALESCE_SECONDS)
+            except asyncio.CancelledError:
+                return
+            if self.selected is not None:
+                await self.focus_slot(self.selected)
+
+        self._focus_task = asyncio.get_running_loop().create_task(settle())
+
     async def handle_encoder(self, encoder: int, delta: int) -> None:
         # Turn events reuse the push-button index: 16 main, 17 left, 18 right.
         config = self._encoder_for(encoder)
         if config is None or config.rotate == "none":
             return
         self.cycle(config.rotate, delta)
+        if config.focus_on_turn:
+            self._schedule_focus()

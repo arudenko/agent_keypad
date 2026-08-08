@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from herdr_km16.herdr import HerdrClient, HerdrEventStream  # noqa: E402
+from herdr_km16.herdr import HerdrClient, HerdrEventStream, event_kind  # noqa: E402
 from herdr_km16.leds import LedRenderer  # noqa: E402
 from herdr_km16.mapping import Agent, SlotMap  # noqa: E402
 
@@ -82,7 +82,7 @@ async def main() -> int:
     print(f"\nsubscribing to {len(panes)} pane(s) + global topology events. Ctrl+C to stop.\n")
 
     async for event in HerdrEventStream(panes):
-        kind = event.get("event")
+        kind = event_kind(event)
         data = event.get("data", {})
         if kind == "pane_agent_status_changed":
             slot = slots.update_status(data["pane_id"], data["agent_status"])

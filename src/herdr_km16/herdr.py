@@ -63,6 +63,20 @@ def _encode(request_id: str, method: str, params: dict[str, Any] | None) -> byte
     return (json.dumps({"id": request_id, "method": method, "params": params or {}}) + "\n").encode()
 
 
+def event_kind(message: dict[str, Any]) -> str:
+    """Normalise an event envelope's name to snake_case.
+
+    Herdr is inconsistent about this and it is a genuine trap. Verified on protocol 19:
+
+        {"event": "pane_agent_detected",     "data": {"type": "pane_agent_detected", ...}}
+        {"event": "pane.agent_status_changed", "data": {...}}   # dots, and no "type"
+
+    Matching only the snake_case spelling silently drops every status change, which is
+    exactly the bug this function exists to prevent.
+    """
+    return str(message.get("event", "")).replace(".", "_")
+
+
 def _unwrap(message: dict[str, Any]) -> Any:
     if "error" in message:
         err = message["error"]

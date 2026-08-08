@@ -51,7 +51,8 @@ controls:
 
   main_encoder:            # key index 16
     rotate: cycle_attention_agents
-    press: focus_selected
+    focus_on_turn: true    # focus as the knob lands, no press needed
+    press: focus_selected  # redundant with focus_on_turn, but harmless
 
   left_encoder:            # key index 17
     rotate: cycle_agents

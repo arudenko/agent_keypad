@@ -25,7 +25,7 @@ from pathlib import Path
 
 from .actions import ActionRouter
 from .config import Config, load_config
-from .herdr import HerdrClient, HerdrError, HerdrEventStream
+from .herdr import HerdrClient, HerdrError, HerdrEventStream, event_kind
 from .km16 import CHAIN_KEYS, CHAIN_UNDERGLOW, KM16
 from .leds import LedRenderer
 from .mapping import Agent, SlotMap
@@ -85,7 +85,7 @@ class Controller:
                 log.info("tracking %d agent pane(s): %s", len(panes), ", ".join(panes) or "none")
                 stream = HerdrEventStream(panes)
                 async for event in stream:
-                    kind = event.get("event", "")
+                    kind = event_kind(event)
                     data = event.get("data", {})
                     if kind == "pane_agent_status_changed":
                         slot = self.slots.update_status(data["pane_id"], data["agent_status"])

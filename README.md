@@ -163,7 +163,7 @@ All three are also push buttons. Turning and pressing use the same index.
 
 | Control | Index | Turn | Press |
 | --- | --- | --- | --- |
-| Main encoder | 16 | Cycle agents **by attention priority** | Focus the selected agent |
+| Main encoder | 16 | Cycle **by attention priority**, focusing as it lands | Focus the selected agent |
 | Small left | 17 | Cycle agents in slot order | Send **Esc** |
 | Small right | 18 | *(unassigned)* | Send **Enter** — long press only |
 
@@ -171,8 +171,12 @@ Attention priority is `blocked` → `done` → `working` → `idle` → `unknown
 knob walks you through whatever needs you most first. Ties break by slot number, so the order
 stays stable.
 
-Turning only moves the selection and talks to nobody; the highlighted key brightens. Herdr is
-only contacted when you press.
+The main encoder focuses as you turn (`focus_on_turn: true`) — no press needed. A fast spin
+only focuses where you stop: each detent cancels the previous pending focus, so Herdr is not
+strobed through every agent on the way past.
+
+The other two only move the selection and talk to nobody; the highlighted key brightens and
+Herdr is contacted when you press. Set `focus_on_turn` on any encoder to change that.
 
 ### Safety-critical behaviour
 

@@ -22,7 +22,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from herdr_km16.herdr import HerdrClient, _connect, _encode, _unwrap  # noqa: E402
+from herdr_km16.herdr import HerdrClient, _connect, _encode, _unwrap, event_kind  # noqa: E402
 
 POLL_SECONDS = 0.5
 
@@ -48,6 +48,9 @@ async def main() -> int:
     transitions: list[tuple[float, str, str, str]] = []
     events: list[tuple[float, str, str]] = []
 
+    subscribed = set(panes)
+    unsubscribed_transitions: list[tuple[float, str, str, str]] = []
+
     async def poll() -> None:
         seen: dict[str, str] = {}
         while time.monotonic() - start < duration:
@@ -56,35 +59,69 @@ async def main() -> int:
                     pane, status = a["pane_id"], a.get("agent_status", "unknown")
                     if pane in seen and seen[pane] != status:
                         t = time.monotonic() - start
-                        transitions.append((t, pane, seen[pane], status))
-                        print(f"  +{t:6.1f}s  POLL   {pane} {seen[pane]} -> {status}", flush=True)
+                        row = (t, pane, seen[pane], status)
+                        # Only transitions on subscribed panes can prove anything: Herdr
+                        # renumbers pane IDs on move, and new agent panes appear mid-run,
+                        # so a transition on an unwatched pane is not evidence of anything.
+                        if pane in subscribed:
+                            transitions.append(row)
+                            tag = "POLL  "
+                        else:
+                            unsubscribed_transitions.append(row)
+                            tag = "POLL* "  # not subscribed; excluded from the verdict
+                        print(f"  +{t:6.1f}s  {tag} {pane} {seen[pane]} -> {status}", flush=True)
                     seen[pane] = status
             except Exception as exc:
                 print(f"  poll error: {exc}", flush=True)
             await asyncio.sleep(POLL_SECONDS)
 
+    listener_alive_until = [0.0]
+
     async def listen() -> None:
-        while time.monotonic() - start < duration:
-            try:
-                line = await asyncio.wait_for(reader.readline(), timeout=duration)
-            except asyncio.TimeoutError:
+        """Read events in short slices, so liveness is provable rather than assumed.
+
+        A single long wait_for cannot distinguish "no events arrived" from "this coroutine
+        died an hour ago", which would make a zero count meaningless.
+        """
+        while True:
+            now = time.monotonic() - start
+            listener_alive_until[0] = now
+            if now >= duration:
                 return
+            try:
+                line = await asyncio.wait_for(reader.readline(), timeout=5.0)
+            except asyncio.TimeoutError:
+                continue  # idle slice; loop and re-stamp liveness
             if not line:
-                print("  event stream closed by server", flush=True)
+                print(f"  +{now:6.1f}s  event stream CLOSED by server", flush=True)
                 return
             msg = json.loads(line)
-            if msg.get("event") == "pane_agent_status_changed":
-                t = time.monotonic() - start
+            if event_kind(msg) == "pane_agent_status_changed":
                 d = msg["data"]
-                events.append((t, d["pane_id"], d["agent_status"]))
-                print(f"  +{t:6.1f}s  EVENT  {d['pane_id']} -> {d['agent_status']}", flush=True)
+                events.append((now, d["pane_id"], d["agent_status"]))
+                print(f"  +{now:6.1f}s  EVENT  {d['pane_id']} -> {d['agent_status']}", flush=True)
+            else:
+                # Any other event proves the subscription connection is still delivering.
+                print(f"  +{now:6.1f}s  (other event: {msg.get('event')})", flush=True)
 
-    await asyncio.gather(poll(), listen())
-    writer.close()
+    try:
+        await asyncio.gather(poll(), listen())
+    finally:
+        writer.close()
 
     print(f"\n=== result over {duration:.0f}s ===")
-    print(f"  transitions observed by polling : {len(transitions)}")
+    print(f"  transitions on SUBSCRIBED panes : {len(transitions)}")
+    print(f"  transitions on other panes      : {len(unsubscribed_transitions)} (excluded)")
     print(f"  pane_agent_status_changed events: {len(events)}")
+    print(f"  listener alive through          : +{listener_alive_until[0]:.0f}s")
+    if listener_alive_until[0] < duration * 0.95:
+        print("\n  WARNING: the listener stopped early, so the event count is not trustworthy.")
+        return 1
+    if not transitions and unsubscribed_transitions:
+        print("\n  INCONCLUSIVE: everything that moved was on a pane we never subscribed to")
+        print("  (Herdr renumbers pane IDs on move, and new agent panes appear mid-run).")
+        print("  Rerun so a subscribed pane changes state.")
+        return 1
     if transitions and not events:
         print("\n  VERDICT: Herdr changed agent status but delivered no events.")
         print("  The subscription is accepted and other event types arrive on the same")

@@ -21,6 +21,8 @@ VALID_PRESS_ACTIONS = {"focus_selected", "escape", "enter", "interrupt", "none"}
 class EncoderConfig:
     rotate: str = "none"
     press: str = "none"
+    # Focus the agent as soon as the knob lands on it, instead of needing a press.
+    focus_on_turn: bool = False
 
 
 @dataclass
@@ -36,7 +38,9 @@ class Config:
     preserve_slots: bool = True
     static: dict[int, str] = field(default_factory=dict)
     key_press: str = "focus_agent"
-    main_encoder: EncoderConfig = field(default_factory=lambda: EncoderConfig("cycle_attention_agents", "focus_selected"))
+    main_encoder: EncoderConfig = field(
+        default_factory=lambda: EncoderConfig("cycle_attention_agents", "focus_selected", focus_on_turn=True)
+    )
     left_encoder: EncoderConfig = field(default_factory=lambda: EncoderConfig("cycle_agents", "escape"))
     right_encoder: EncoderConfig = field(default_factory=lambda: EncoderConfig("none", "enter"))
     action_keys: dict[int, str] = field(default_factory=dict)
@@ -56,7 +60,10 @@ def _encoder(raw: dict[str, Any] | None, default: EncoderConfig, where: str) -> 
         raise ValueError(f"{where}.rotate: unknown action {rotate!r} (expected one of {sorted(VALID_ROTATE_ACTIONS)})")
     if press not in VALID_PRESS_ACTIONS:
         raise ValueError(f"{where}.press: unknown action {press!r} (expected one of {sorted(VALID_PRESS_ACTIONS)})")
-    return EncoderConfig(rotate=rotate, press=press)
+    focus_on_turn = bool(raw.get("focus_on_turn", default.focus_on_turn))
+    if focus_on_turn and rotate == "none":
+        raise ValueError(f"{where}.focus_on_turn needs a rotate action to focus onto")
+    return EncoderConfig(rotate=rotate, press=press, focus_on_turn=focus_on_turn)
 
 
 def load_config(path: str | Path | None = None) -> Config:
