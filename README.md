@@ -326,8 +326,13 @@ Bootloader mode first. The pad returns to stock and works with VIA again.
 
 The keypad drives agents that can execute shell commands, so:
 
-- A key press only **focuses** an agent. It never answers a blocked prompt.
-- `enter` and `interrupt` need a long press (300 ms default, `config.yaml`).
+- **Agent keys (0–11) only focus.** Selecting an agent never answers a prompt or sends a
+  keystroke, so navigating the pad is always safe.
+- Approving is a deliberate, separate act: the **approve key** (12), held for 300 ms.
+  `approve`, `enter` and `interrupt` are all gated (`safety.require_long_press_for`).
+- Approve sends Enter, accepting whichever option Claude Code has highlighted — usually but
+  not always "Yes". It is a fast path for prompts you have read, not a way to skip reading.
+- Keys are debounced at 50 ms, and every control action is logged.
 - Focusing a `done` agent marks it seen, so green turns to dim white. That's Herdr's
   semantics, not a bug.
 
@@ -345,6 +350,6 @@ tools/             hardware + Herdr probes:
                      herdr_watch.py        agents, slots, LED frame, events (Phase 4)
                      diag_read.py          isolate HID read failures
                      diag_chains.py        find which LED command misbehaves
-                     diag_event_vs_poll.py transitions vs events delivered
+                     diag_event_vs_poll.py prove events fire, against real transitions
 tests/             unit tests; no hardware or Herdr required
 ```

@@ -143,6 +143,31 @@ Prefer pushing a whole 16-LED frame with `0x05` on change rather than many `0x06
 The upstream client also reuses one shared buffer without clearing it between commands;
 ours builds a fresh buffer per packet.
 
+### The LED chains default to OFF, and failure is silent
+
+`KM16.h` has **three independent switches**, all initialised `false`:
+
+| Command | Function | Pin |
+| --- | --- | --- |
+| `0x02` | `setEnableLeds` — master power | PB14 |
+| `0x03` chain 0 | `setEnableKeyLeds` | PB13 |
+| `0x03` chain 1 | `setEnableUnderglow` | PB12 |
+
+`setKeyLed()` only marks the frame dirty **if its chain is enabled**. Send colours with just
+the master on and they are stored in `_keyleds[]` and never shifted out — no error, no
+warning, just a dark pad. Use `KM16.power_on_leds()`, which sends all three in order (power
+first, because enabling a chain pushes its pixels immediately).
+
+### hidapi handles are not thread-safe
+
+Reading on one thread while writing on another makes the Windows backend fail with
+`OSError('read error')` within seconds. `KM16` therefore gives the handle a **single owning
+thread** with a write queue (`_io_loop`), and reads with a short timeout so queued writes
+stay responsive. Do not call `hid.write()` from the event loop.
+
+Note this was *not* the cause of the `read error` originally chased here — that was the
+firmware `0x06` reset above — but the race is real and was fixed on the way past.
+
 ## Layout
 
 ```
