@@ -293,6 +293,21 @@ Start order doesn't matter: the daemon tolerates Herdr not running and the keypa
 unplugged, and reconnects to either. While no client is connected the pad's layer indicator
 flashes red — that's the firmware watchdog, and it stops once the daemon attaches.
 
+### Logs
+
+The daemon logs to stdout **and** to a rotating file, so a failure leaves evidence even when
+it runs windowless:
+
+```
+%LOCALAPPDATA%\herdr-km16\herdr-km16.log     (1 MB x 4 files)
+```
+
+Override with `--log-file <path>`, or `--no-log-file` for stdout only.
+
+Worth grepping for: `watchdog gap ... exceeded` means the pings stalled long enough for the
+firmware to disable the LED chains — the daemon re-enables them, but repeated occurrences
+point at something blocking the event loop.
+
 To run it without a console window:
 
 ```powershell

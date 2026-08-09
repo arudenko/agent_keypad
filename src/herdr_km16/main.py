@@ -20,7 +20,9 @@ import argparse
 import asyncio
 import contextlib
 import logging
+import os
 import time
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from .actions import ActionRouter
@@ -45,6 +47,7 @@ def _agent_from_record(record: dict) -> Agent:
         name=record.get("name"),
         cwd=record.get("cwd"),
         title=record.get("terminal_title_stripped"),
+        terminal_id=record.get("terminal_id"),
     )
 
 
@@ -113,6 +116,13 @@ class Controller:
                 if self.slots.live_agents():
                     self.slots.sync([])
                     self.dirty.set()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # Anything else -- a malformed event, an unexpected envelope shape, a
+                # missing field -- must not take the daemon down. Herdr's event shapes have
+                # already varied once (see herdr.event_kind), so assume they will again.
+                log.exception("unexpected error in the event loop; resubscribing")
             await asyncio.sleep(self.config.reconnect_seconds)
 
     async def reconcile_loop(self) -> None:
@@ -251,17 +261,51 @@ def _resolve_config(explicit: Path | None) -> Path | None:
     return None  # genuinely no config anywhere: defaults are the intended behaviour
 
 
+def default_log_path() -> Path:
+    base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~/.local/state")
+    return Path(base) / "herdr-km16" / "herdr-km16.log"
+
+
+def setup_logging(verbose: bool, log_file: Path | None) -> Path | None:
+    """Log to stdout and, unless disabled, to a rotating file.
+
+    Running windowless (the documented way to start at logon) throws stdout away, so
+    without a file there is no evidence at all after a failure -- which is exactly the
+    situation that made the LED blackout hard to diagnose.
+    """
+    handlers: list[logging.Handler] = [logging.StreamHandler()]
+    if log_file is not None:
+        try:
+            log_file.parent.mkdir(parents=True, exist_ok=True)
+            handlers.append(
+                RotatingFileHandler(log_file, maxBytes=1_000_000, backupCount=3, encoding="utf-8")
+            )
+        except OSError as exc:  # never let logging setup stop the daemon
+            print(f"warning: cannot write log file {log_file}: {exc}")
+            log_file = None
+
+    logging.basicConfig(
+        level=logging.DEBUG if verbose else logging.INFO,
+        format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
+        handlers=handlers,
+    )
+    return log_file
+
+
 def run() -> None:
     parser = argparse.ArgumentParser(prog="herdr-km16", description="KM16 -> Herdr agent controller")
     parser.add_argument("-c", "--config", default=None, type=Path,
                         help="path to config.yaml (default: ./config.yaml, else the repo copy)")
     parser.add_argument("-v", "--verbose", action="store_true")
+    parser.add_argument("--log-file", type=Path, default=None,
+                        help=f"rotating log file (default: {default_log_path()})")
+    parser.add_argument("--no-log-file", action="store_true", help="log to stdout only")
     args = parser.parse_args()
 
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
-    )
+    log_file = None if args.no_log_file else (args.log_file or default_log_path())
+    log_file = setup_logging(args.verbose, log_file)
+    if log_file:
+        log.info("logging to %s", log_file)
     config_path = _resolve_config(args.config)
     log.info("config: %s", config_path or "(built-in defaults)")
     config = load_config(config_path)

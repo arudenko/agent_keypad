@@ -63,7 +63,7 @@ class ActionRouter:
             index = 0 if delta > 0 else len(order) - 1
         self.selected = order[index]
         agent = self.slots.agent_at(self.selected)
-        log.info("select slot %s (%s, %s)", self.selected, agent.key if agent else "?", agent.status if agent else "?")
+        log.info("select slot %s (%s, %s)", self.selected, agent.target if agent else "?", agent.status if agent else "?")
 
     # --- herdr operations -------------------------------------------------
 
@@ -72,11 +72,11 @@ class ActionRouter:
         if agent is None:
             return
         self.selected = slot
-        log.info("focus slot %s -> %s (%s)", slot, agent.key, agent.status)
+        log.info("focus slot %s -> %s (%s)", slot, agent.target, agent.status)
         try:
-            await self.client.focus_agent(agent.key)
+            await self.client.focus_agent(agent.target)
         except HerdrError as exc:
-            log.warning("focus %s failed: %s", agent.key, exc)
+            log.warning("focus %s failed: %s", agent.target, exc)
 
     async def send_named_key(self, action: str) -> None:
         """Send esc / enter / ctrl+c to the selected agent."""
@@ -88,11 +88,11 @@ class ActionRouter:
         key = KEY_NAMES.get(action)
         if key is None:
             return
-        log.info("send %r to %s (%s)", key, agent.key, agent.status)
+        log.info("send %r to %s (%s)", key, agent.target, agent.status)
         try:
-            await self.client.send_keys(agent.key, [key])
+            await self.client.send_keys(agent.target, [key])
         except HerdrError as exc:
-            log.warning("send_keys %s to %s failed: %s", key, agent.key, exc)
+            log.warning("send_keys %s to %s failed: %s", key, agent.target, exc)
 
     async def run_action(self, action: str, held_ms: float) -> None:
         """Run a bottom-row action key against the selected agent."""

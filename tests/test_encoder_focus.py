@@ -50,7 +50,7 @@ def test_a_fast_spin_focuses_only_the_resting_agent():
 
     asyncio.run(go())
     assert len(client.focused) == 1, f"expected one focus, got {client.focused}"
-    assert client.focused[0] == router.slots.agent_at(router.selected).key
+    assert client.focused[0] == router.slots.agent_at(router.selected).target
 
 
 def test_other_encoders_do_not_focus_on_turn():

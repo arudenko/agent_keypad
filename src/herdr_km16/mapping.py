@@ -22,10 +22,26 @@ class Agent:
     name: str | None = None
     cwd: str | None = None
     title: str | None = None
+    terminal_id: str | None = None
 
     @property
-    def key(self) -> str:
-        """Preferred stable identity: a Herdr agent name if it has one, else the pane."""
+    def identity(self) -> str:
+        """What owns a key slot, and must survive a pane move.
+
+        Herdr renumbers the public `pane_id` when a pane moves across workspaces while the
+        same terminal keeps running. Keying slots on `pane_id` therefore reads a move as
+        "agent exited, new agent appeared" and reshuffles the pad. `terminal_id` is stable
+        for the life of the terminal, so it is the better identity.
+        """
+        return self.name or self.terminal_id or self.pane_id
+
+    @property
+    def target(self) -> str:
+        """What Herdr accepts in `agent.*` calls.
+
+        Deliberately *not* `terminal_id`: Herdr's own agent docs state that agent commands
+        take a live agent name or the pane ID hosting it, and reject terminal IDs.
+        """
         return self.name or self.pane_id
 
 
@@ -117,7 +133,7 @@ class SlotMap:
 
     def sync(self, agents: list[Agent]) -> None:
         """Reconcile against an authoritative agent list (a fresh snapshot)."""
-        incoming = {a.key: a for a in agents}
+        incoming = {a.identity: a for a in agents}
         for slot, identity in enumerate(self._slots):
             if identity and identity not in incoming:
                 if not (self.preserve_slots and self.static.get(slot) == identity):
@@ -129,9 +145,9 @@ class SlotMap:
 
     def upsert(self, agent: Agent) -> int | None:
         """Add or update one agent, allocating a slot if it is new."""
-        self._agents[agent.key] = agent
-        slot = self.slot_of(agent.key)
-        return slot if slot is not None else self._allocate(agent.key)
+        self._agents[agent.identity] = agent
+        slot = self.slot_of(agent.identity)
+        return slot if slot is not None else self._allocate(agent.identity)
 
     def update_status(self, pane_id: str, status: str) -> int | None:
         """Apply a pane.agent_status_changed event. Returns the affected slot, if any."""
