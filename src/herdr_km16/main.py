@@ -130,12 +130,20 @@ class Controller:
 
     # --- device -----------------------------------------------------------
 
+    @staticmethod
+    async def _device_present() -> bool:
+        """hid.enumerate() blocks; on the event loop it can stall the watchdog ping past
+        the firmware timeout, which disables the LED chains."""
+        return await asyncio.get_running_loop().run_in_executor(None, KM16.is_present)
+
     async def device_loop(self) -> None:
         warned = None
         while True:
-            if not KM16.is_present():
+            if not await self._device_present():
                 # Log each distinct situation once; this loop polls every 2s.
-                reason = "stock" if KM16.stock_firmware_present() else "absent"
+                reason = "stock" if await asyncio.get_running_loop().run_in_executor(
+                    None, KM16.stock_firmware_present
+                ) else "absent"
                 if reason != warned:
                     warned = reason
                     if reason == "stock":
@@ -160,7 +168,7 @@ class Controller:
             device.start_reading()
             self.dirty.set()
             try:
-                while KM16.is_present():
+                while await self._device_present():
                     await asyncio.sleep(1.0)
                 log.warning("KM16 disconnected")
             finally:

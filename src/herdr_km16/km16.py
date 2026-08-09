@@ -14,6 +14,7 @@ import asyncio
 import logging
 import queue
 import threading
+import time
 from typing import Callable, Iterable, Sequence
 
 log = logging.getLogger("herdr_km16.km16")
@@ -23,6 +24,15 @@ log = logging.getLogger("herdr_km16.km16")
 # single thread owns the handle and does both. Reads use a short timeout to keep queued
 # writes responsive.
 READ_TIMEOUT_MS = 20
+
+
+def watchdog_gap_tripped(gap_ms: float, interval_ms: int) -> bool:
+    """Did enough time pass between pings that the firmware watchdog will have fired?
+
+    Uses the full timeout as the threshold. The ping rate is twice that, so a normal gap is
+    ~half the timeout and this cannot fire on ordinary jitter.
+    """
+    return interval_ms > 0 and gap_ms >= interval_ms
 
 VID = 0x1209
 PID = 0x88BF
@@ -265,9 +275,24 @@ class KM16:
             )
 
     async def _watchdog_loop(self, interval_ms: int) -> None:
+        last = time.monotonic()
         try:
             while True:
                 await asyncio.sleep(interval_ms / 2000)  # ping at twice the timeout rate
+                now = time.monotonic()
+                gap_ms = (now - last) * 1000
+                last = now
+                if watchdog_gap_tripped(gap_ms, interval_ms):
+                    # A tripped firmware watchdog does not just flash the indicator: it runs
+                    # setEnableKeyLeds(false) / setEnableUnderglow(false). Resuming pings
+                    # clears the trip but never re-enables the chains, so without this the
+                    # pad stays dark forever while input keeps working.
+                    log.warning(
+                        "watchdog gap %.0fms exceeded %dms timeout; re-enabling LED chains",
+                        gap_ms, interval_ms,
+                    )
+                    self.power_on_leds()
+                    self._last_frame.clear()  # force a full repaint, not a deduped no-op
                 self._write(build_watchdog(interval_ms))
         except asyncio.CancelledError:
             pass
