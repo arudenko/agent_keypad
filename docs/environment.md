@@ -32,7 +32,7 @@ Environment variables present inside a Herdr pane:
 
 ```
 HERDR_ENV=1
-HERDR_SOCKET_PATH=C:\Users\bramd\AppData\Roaming\herdr\herdr.sock
+HERDR_SOCKET_PATH=C:\Users\<you>\AppData\Roaming\herdr\herdr.sock
 HERDR_WORKSPACE_ID=wA
 HERDR_TAB_ID=wA:t1
 HERDR_PANE_ID=wA:p1
@@ -48,7 +48,7 @@ e.g. `19792:1785935212961784300`. There is no TCP listener on that port number â
 The real transport is a **named pipe** whose name embeds the whole path:
 
 ```
-\\.\pipe\C:\Users\bramd\AppData\Roaming\herdr\herdr.sock
+\\.\pipe\C:\Users\<you>\AppData\Roaming\herdr\herdr.sock
 ```
 
 A second pipe, `...\herdr-client.sock`, belongs to the client and is not ours to use.

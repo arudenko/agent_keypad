@@ -1,34 +1,88 @@
 # herdr-km16
 
-An MMD KM16 macropad as a bidirectional physical control surface for the Claude Code agents
-running inside [Herdr](https://herdr.dev).
+**A 16-key macropad as a physical control surface for AI coding agents.**
 
-- The top 12 keys are live agents. Press one to focus it.
-- Each key's RGB shows that agent's state — see [Using the pad](#using-the-pad).
-- The bottom row approves, rejects, interrupts, or jumps to whatever needs you next.
-- The 6 underglow LEDs summarise the whole session at a glance.
-- Three encoders navigate agents and send Esc / Enter.
-- Runs over RAW HID, so it works regardless of which desktop app has keyboard focus.
+If you run several Claude Code sessions at once, you lose track of them. One is waiting on a
+permission prompt, one finished ten minutes ago, one is still grinding — and you find out by
+alt-tabbing around.
 
-Design rationale and acceptance criteria: [`herdr-km16-controller-handoff.md`](herdr-km16-controller-handoff.md).
-Working notes and hard-won protocol details: [`CLAUDE.md`](CLAUDE.md).
+This puts them on your desk. Each key is an agent, lit by its live state. Press a key to jump
+to that agent; the bottom row approves, rejects or interrupts whichever one you have selected.
+It runs over RAW HID, so it works no matter which window has focus.
 
-## Current status
+```
+   +---------+---------+---------+---------+
+   |  blue   |  green  |dim white|   off   |     blue   = working
+   | working |  done   |  idle   |         |     green  = done, unseen
+   +---------+---------+---------+---------+     white  = idle
+   | RED     |         |         |         |     RED    = blocked (pulsing)
+   | blocked |         |         |         |     off    = no agent
+   +---------+---------+---------+---------+
+   |         |         |         |         |
+   +---------+---------+---------+---------+
+   | APPROVE | REJECT  |  STOP   |  NEXT   |  <- actions, on the selected agent
+   +---------+---------+---------+---------+
+      [ main knob ]   [ left ]   [ right ]
+       cycle+focus      esc      brightness
+```
 
-| Phase | State |
+The 6 underglow LEDs summarise everything at a glance — red if anything is blocked, green if
+anything finished, blue if anything is working. So the pad tells you across the room.
+
+It talks to [Herdr](https://herdr.dev), a terminal workspace manager that already knows which
+panes contain agents and what state they are in, over its local socket API.
+
+## Status
+
+Working, and in daily use on the author's machine. Be aware of the caveats:
+
+- **Tested on exactly one KM16.** The firmware is community reverse-engineered and units sold
+  under the same name could differ. The backup step below is not optional.
+- **Windows-only so far.** The Herdr client handles AF_UNIX for Linux/macOS but that path is
+  unexercised; the flashing scripts are PowerShell.
+- **Pinned to Herdr protocol 19** (0.8.0-preview). The bundled schema is committed and
+  `scripts/refresh-herdr-schema.ps1` regenerates it.
+- Flashing replaces the stock VIA firmware. You can restore it; see [Rolling back](#rolling-back).
+
+One known cosmetic issue: occasional LED flicker, cause not yet identified. `km16.pulse: false`
+stops it.
+
+## Requirements
+
+| | |
 | --- | --- |
-| 0 — inspect environment | **done**, recorded in `CLAUDE.md` |
-| 1 — firmware backup | **done** — 122880 bytes verified, offsite copy, see `docs/firmware-backup.md` |
-| 2 — flash RawMacroPad | **done** — patched build, device live on RAW HID `1209:88bf` |
-| 3 — hardware self-test | **done** — 19/19 keys, 3/3 encoders, all LED chains confirmed |
-| 4 — Herdr client | **done and verified** against the live session |
-| 5 — integration | **working** — agents map to keys, LEDs track state, keys focus and act |
-| 6 — polish | config, logging, reconnect done; startup service not yet set up |
+| Hardware | MMD KM16 macropad (16 keys, 3 encoders, per-key RGB) |
+| Firmware | [RawMacroPad](https://github.com/toptensoftware/rawMacroPad), **patched** — see below |
+| Software | [Herdr](https://herdr.dev), Python 3.12+ |
+| Flashing | `dfu-util`, `arduino-cli`, and WinUSB via [Zadig](https://zadig.akeo.ie/) on Windows |
 
-LED updates are event-driven and land within milliseconds of a state change. A periodic
-resync (`herdr.poll_seconds`, default 5 s) runs behind them purely as a backstop.
+## Quick start
 
-The only outstanding item is the startup service — the daemon does not yet launch at logon.
+```powershell
+git clone https://github.com/bramdes/agent_keypad
+cd agent_keypad
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+.\.venv\Scripts\python.exe -m pytest        # full suite; no hardware or Herdr needed
+```
+
+You can exercise the whole Herdr half before touching the keypad:
+
+```powershell
+.\.venv\Scripts\python.exe tools\herdr_watch.py
+```
+
+That prints your live agents, how they map to keys, an ANSI mock of the 4x4 pad, and the exact
+LED frame that would be pushed — then streams state changes.
+
+Then follow [Flashing the keypad](#flashing-the-keypad), and run it:
+
+```powershell
+.\.venv\Scripts\herdr-km16.exe
+```
+
+Start order does not matter: it tolerates Herdr not running and the keypad being unplugged, and
+reconnects to either.
 
 ## Using the pad
 
@@ -199,172 +253,151 @@ separate key with a hold — selecting an agent never approves anything on its o
 
 Keys are debounced at 50 ms. Every control action is logged.
 
-## Setup
+## Flashing the keypad
+
+> **Back up the stock firmware first.** The RawMacroPad author reverse engineered one specific
+> unit, and hardware revisions could differ. The backup script refuses to continue unless it
+> sees the expected bootloader and reads back exactly 122880 bytes.
+
+**1. Toolchain.** `arduino-cli` is in winget; `dfu-util` is not, so take the Windows binaries
+from [dfu-util.sourceforge.net](https://dfu-util.sourceforge.net/releases/) and put them on
+your PATH.
 
 ```powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
-.\.venv\Scripts\python.exe -m pytest
+winget install ArduinoSA.CLI
 ```
 
-## What you need to do next
+**2. Bootloader mode.** Unplug the pad, hold the **top-left key**, and plug it back in. No LEDs
+light — that is correct.
 
-### 1. Flashing toolchain — done
+**3. WinUSB.** Windows binds no driver to the bootloader, so `dfu-util` will see `1eaf:0003`
+but fail with `LIBUSB_ERROR_NOT_SUPPORTED`. Use [Zadig](https://zadig.akeo.ie/): *Options → List
+All Devices*, select **SmartBoot** (verify the USB ID reads `1EAF 0003`), install **WinUSB**.
+Only bind the bootloader device, never the normal keyboard interface.
 
-Already installed and verified on this machine:
-
-| | |
-| --- | --- |
-| `arduino-cli` | 1.5.1, `C:\Program Files\Arduino CLI\` (winget `ArduinoSA.CLI`) |
-| `dfu-util` | 0.11, `C:\Soft\dfu-util\win64` — added to the **user** PATH |
-| STM32 core | `STMicroelectronics:stm32@3.0.0` |
-| RawMacroPad | cloned to `%USERPROFILE%\km16-firmware-backup\rawMacroPad` at `ead652e` |
-| Firmware | **compiled**: 22684 bytes, 17% of flash |
-
-`dfu-util` is not in winget, and neither Chocolatey nor Scoop is on this machine, so it was
-installed by hand from <https://dfu-util.sourceforge.net/releases/>. A shell opened before
-the PATH edit won't see it — open a new one.
-
-Note the build output is `km16.ino.bin`, named after the sketch — **not** the
-`firmware.ino.bin` that the upstream readme and the handoff doc both claim. The flash script
-discovers it rather than hardcoding a name.
-
-You will also need a USB driver that `dfu-util` can talk to. On Windows the STM32duino
-bootloader usually needs WinUSB bound to it — use [Zadig](https://zadig.akeo.ie/), select the
-device that appears while it is in bootloader mode (`Maple DFU` / `STM32 BOOTLOADER`),
-and install the **WinUSB** driver. Do this only for the bootloader device, not for the
-normal KM16 keyboard interface.
-
-### 2. Back up the stock firmware — do this before anything else
-
-Unplug the KM16, **hold the top-left key**, and plug it back in. Then:
+**4. Back up, then flash.**
 
 ```powershell
-.\scripts\backup-km16-firmware.ps1
+.\scripts\backup-km16-firmware.ps1     # verifies 122880 bytes, then records a SHA256
+.\scripts\flash-rawmacropad.ps1        # refuses to run without a verified backup
 ```
 
-The script refuses to continue unless it sees bootloader `1eaf:0003` and gets exactly
-122880 bytes back. `Error during upload (LIBUSB_ERROR_PIPE)` at the end is expected and fine.
+The flash script pins upstream to a known revision, applies the patches in `firmware/patches/`,
+and refuses to build if it can still find the fall-through bug described below.
 
-If the bootloader ID is anything else, **stop** — your unit may be a different hardware
-revision from the one RawMacroPad was reverse engineered against.
+Afterwards the layer indicator flashes red — that is the watchdog saying no client is connected
+yet, and it stops when the daemon starts.
 
-The backup lands in `%USERPROFILE%\km16-firmware-backup\` deliberately, outside the repo.
-Copy it somewhere safe.
-
-### 3. Flash RawMacroPad
-
-Bootloader mode again (hold top-left key while plugging in), then:
+**5. Prove the hardware.**
 
 ```powershell
-.\scripts\flash-rawmacropad.ps1
+.\.venv\Scripts\python.exe tools\check_device.py    # should report 1209:88bf
+.\.venv\Scripts\python.exe tools\hw_selftest.py     # LEDs, then all 19 keys and 3 encoders
 ```
 
-It won't run without a verified backup. Afterwards the layer indicator should **flash red** —
-that is the watchdog telling you no host client is connected yet. Correct, not an error.
-
-The device now enumerates as RAW HID `1209:88BF` instead of the stock `5343:0080`.
-
-### 4. Prove the hardware
-
-```powershell
-.\.venv\Scripts\python.exe tools\hw_selftest.py
-```
-
-Walks every LED, then waits for you to press all 19 keys and turn all 3 encoders.
-
-Watch step 4 in particular: it sets **one** LED white. If the whole pad goes white, the
-upstream `0x04`/`0x06` bug has come back — see `CLAUDE.md`.
-
-### 5. Run the controller
-
-```powershell
-.\.venv\Scripts\herdr-km16.exe
-```
-
-That's it. It runs in the foreground and logs what it does; **Ctrl+C** to stop. Add `-v` for
-debug logging, or `-c <path>` for a different config.
-
-It works from any directory — with no `-c` it uses `./config.yaml` if present, otherwise the
-copy in the repo, and logs which one it picked. A `-c` path that doesn't exist is a hard
-error rather than a silent fall back to defaults.
-
-Start order doesn't matter: the daemon tolerates Herdr not running and the keypad being
-unplugged, and reconnects to either. While no client is connected the pad's layer indicator
-flashes red — that's the firmware watchdog, and it stops once the daemon attaches.
-
-### Logs
-
-The daemon logs to stdout **and** to a rotating file, so a failure leaves evidence even when
-it runs windowless:
-
-```
-%LOCALAPPDATA%\herdr-km16\herdr-km16.log     (1 MB x 4 files)
-```
-
-Override with `--log-file <path>`, or `--no-log-file` for stdout only.
-
-Worth grepping for: `watchdog gap ... exceeded` means the pings stalled long enough for the
-firmware to disable the LED chains — the daemon re-enables them, but repeated occurrences
-point at something blocking the event loop.
-
-To run it without a console window:
-
-```powershell
-Start-Process -WindowStyle Hidden .\.venv\Scripts\pythonw.exe -ArgumentList '-m','herdr_km16.main'
-```
-
-You can check the Herdr half at any time, no hardware needed:
-
-```powershell
-.\.venv\Scripts\python.exe tools\herdr_watch.py
-```
-
-That prints the current agents, the slot assignment, an ANSI mock of the 4x4 pad and the exact
-LED frame that would be pushed, then streams live events.
-
-### 6. Run it at startup
-
-Not yet set up. Once you are happy with it, register a Task Scheduler job at logon running
-`.venv\Scripts\pythonw.exe -m herdr_km16.main`. The daemon already tolerates Herdr and the
-keypad being absent, so it is safe to start before either.
-
-## Rolling back
+### Rolling back
 
 ```powershell
 .\scripts\restore-km16-firmware.ps1
 ```
 
-Bootloader mode first. The pad returns to stock and works with VIA again.
+Bootloader mode first. The pad returns to stock and works with VIA again. WinUSB is bound only
+to the bootloader, so it does not interfere either way.
 
-## Safety
+## Two firmware bugs, and they hide each other
 
-The keypad drives agents that can execute shell commands, so:
+Worth knowing if you build anything else on RawMacroPad. Both confirmed at upstream `ead652e`.
 
-- **Agent keys (0–11) only focus.** Selecting an agent never answers a prompt or sends a
-  keystroke, so navigating the pad is always safe.
-- Approving is a deliberate, separate act: the **approve key** (12), held for 300 ms.
-  `approve`, `enter` and `interrupt` are all gated (`safety.require_long_press_for`).
-- Approve sends Enter, accepting whichever option Claude Code has highlighted — usually but
-  not always "Yes". It is a fast path for prompts you have read, not a way to skip reading.
-- Keys are debounced at 50 ms, and every control action is logged.
-- Focusing a `done` agent marks it seen, so green turns to dim white. That's Herdr's
-  semantics, not a bug.
+**The client sends the wrong command.** `set_led()` in the bundled Python and Node clients
+sends `0x04` — "set the whole chain to one colour" — plus an index byte. The protocol spec and
+the firmware both define `0x06` for a single LED. So `set_led()` silently paints all 16 keys.
+
+**The firmware resets on the right one.** In `km16.ino`, `case 0x06:` is missing its `break;`
+and falls through into `case 0xFF: NVIC_SystemReset()`. A correctly formed single-LED write
+**reboots the MCU**. The symptom is an LED write that appears to work, then `hid.read()` failing
+with `OSError('read error')` a second later as the device re-enumerates.
+
+Each bug conceals the other. Upstream's client never sends `0x06`, so it never reaches the
+broken case — and fixing the client, which is the obvious correct thing to do, is precisely what
+detonates the firmware. Patched here in
+[`firmware/patches/`](firmware/patches/); the flash script will not build without it.
+
+A third trap, not a bug but undocumented: **the LED chains default to off.** There are three
+independent switches — master power, key chain, underglow — and `setKeyLed()` only marks a frame
+dirty when its chain is enabled. Send colours with just the master on and they are stored and
+silently never shifted out. No error, just a dark pad.
+
+## Configuration
+
+Everything lives in [`config.yaml`](config.yaml) — colours, brightness, key bindings, encoder
+actions, which actions are guarded, and how agents pin to keys. No source edits required.
+
+```yaml
+mapping:
+  static:            # pin an agent to a key by Herdr agent name
+    0: reviewer
+
+action_keys:         # free a key here and it goes back to being an agent slot
+  12: approve        # approve | reject | interrupt | next_attention | none
+
+safety:
+  long_press_ms: 300
+  require_long_press_for: [approve, enter, interrupt]
+```
+
+Slots are sticky: an agent keeps its key while it lives, new agents take the lowest free key,
+and a state change never reshuffles the pad. Identity survives Herdr renumbering a pane.
+
+State reaches the LEDs by subscription, so a key changes within milliseconds of the agent
+changing. A periodic resync (`herdr.poll_seconds`, default 5 s) runs behind that purely as a
+backstop, for a dropped subscription or a pane that appeared before the daemon resubscribed.
+
+### Logs
+
+Stdout **and** a rotating file, so a failure leaves evidence even when run windowless:
+
+```
+%LOCALAPPDATA%\herdr-km16\herdr-km16.log     (1 MB x 4 files)
+```
+
+`--log-file <path>` to move it, `--no-log-file` for stdout only. Worth grepping for
+`watchdog gap ... exceeded`: the pings stalled long enough for the firmware to disable the LED
+chains. The daemon re-enables them, but repeats mean something is blocking the event loop.
+
+To run without a console window:
+
+```powershell
+Start-Process -WindowStyle Hidden .\.venv\Scripts\pythonw.exe -ArgumentList '-m','herdr_km16.main'
+```
 
 ## Layout
 
 ```
-CLAUDE.md          working reference: verified environment + protocol gotchas
+CLAUDE.md          working notes: verified environment + protocol gotchas
 config.yaml        all tunable behaviour
-docs/              committed Herdr schema + skill doc (regenerate after Herdr updates)
+docs/              committed Herdr schema, environment notes, backup provenance
+firmware/patches/  the fall-through fix, applied at flash time
 scripts/           firmware backup / flash / restore, schema refresh
 src/herdr_km16/    the daemon
-tools/             hardware + Herdr probes:
-                     check_device.py       what the pad enumerates as
-                     hw_selftest.py        LEDs, keys, encoders (Phase 3)
-                     herdr_watch.py        agents, slots, LED frame, events (Phase 4)
-                     diag_read.py          isolate HID read failures
-                     diag_chains.py        find which LED command misbehaves
-                     diag_event_vs_poll.py prove events fire, against real transitions
+tools/             hardware and Herdr probes, including the ones that found the bugs above
 tests/             unit tests; no hardware or Herdr required
 ```
+
+[`herdr-km16-controller-handoff.md`](herdr-km16-controller-handoff.md) is the original design
+brief this was built from, kept for provenance — including the acceptance criteria it was
+measured against.
+
+`CLAUDE.md` is the interesting one if you want the hard-won details: the Windows named-pipe
+transport, why a subscribed connection cannot carry requests, the event-envelope naming
+inconsistency, and why hidapi needs a single owning thread.
+
+## Credits
+
+- [RawMacroPad](https://github.com/toptensoftware/rawMacroPad) by Topten Software — the RAW HID
+  firmware this depends on, and the reverse engineering of the KM16. MIT licensed.
+- [Herdr](https://herdr.dev) — the agent-aware terminal workspace manager underneath.
+
+## License
+
+MIT — see [LICENSE](LICENSE). The firmware patch under `firmware/patches/` is a diff against
+MIT-licensed RawMacroPad and carries that project's terms.

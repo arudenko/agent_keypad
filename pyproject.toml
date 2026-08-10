@@ -3,10 +3,24 @@ name = "herdr-km16"
 version = "0.1.0"
 description = "MMD KM16 macropad as a physical control surface for Claude Code agents in Herdr"
 requires-python = ">=3.12"
+readme = "README.md"
+license = "MIT"
+keywords = ["macropad", "hid", "claude-code", "herdr", "km16", "rawmacropad"]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Hardware :: Hardware Drivers",
+]
 dependencies = [
     "hidapi>=0.14",
     "pyyaml>=6.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/bramdes/agent_keypad"
+Issues = "https://github.com/bramdes/agent_keypad/issues"
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]

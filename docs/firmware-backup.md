@@ -17,7 +17,7 @@ prove a copy is intact.
 ## Copies
 
 - `%USERPROFILE%\km16-firmware-backup\original_firmware.bin` (primary)
-- `%USERPROFILE%\OneDrive\km16-original_firmware.bin` (offsite)
+- a second copy kept off the machine (cloud sync, another drive) (offsite)
 
 ## Verifying a copy
 
