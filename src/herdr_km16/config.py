@@ -31,6 +31,7 @@ class Config:
     reconnect_seconds: float = 1.0
     poll_seconds: float = 1.5
     watchdog_ms: int = 2000
+    led_reassert_seconds: float = 5.0
     brightness: float = 0.35
     brightness_step: float = 0.05
     underglow: bool = True
@@ -87,6 +88,7 @@ def load_config(path: str | Path | None = None) -> Config:
 
     km16 = raw.get("km16") or {}
     cfg.watchdog_ms = int(km16.get("watchdog_ms", cfg.watchdog_ms))
+    cfg.led_reassert_seconds = float(km16.get("led_reassert_seconds", cfg.led_reassert_seconds))
     cfg.brightness = float(km16.get("brightness", cfg.brightness))
     cfg.brightness_step = float(km16.get("brightness_step", cfg.brightness_step))
     cfg.underglow = bool(km16.get("underglow", cfg.underglow))
@@ -97,6 +99,10 @@ def load_config(path: str | Path | None = None) -> Config:
         raise ValueError(f"km16.brightness_step must be within 0..0.5, got {cfg.brightness_step}")
     if cfg.watchdog_ms and cfg.watchdog_ms < 100:
         raise ValueError(f"km16.watchdog_ms too small to ping reliably: {cfg.watchdog_ms}")
+    if cfg.led_reassert_seconds < 0:
+        raise ValueError(
+            f"km16.led_reassert_seconds cannot be negative, got {cfg.led_reassert_seconds}"
+        )
 
     for name, value in (raw.get("colors") or {}).items():
         if name not in DEFAULT_COLORS:

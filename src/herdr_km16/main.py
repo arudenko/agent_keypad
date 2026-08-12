@@ -186,6 +186,36 @@ class Controller:
                 with contextlib.suppress(Exception):
                     device.close()
 
+    async def led_reassert_loop(self) -> None:
+        """Re-assert the LED chain enables on a slow cadence.
+
+        A tripped firmware watchdog disables both chains, and it trips whenever pings stop
+        *arriving* -- which is not the same as us stopping *sending*. Windows Modern Standby
+        suspends USB while this process keeps running normally, so the ping-gap check in
+        ``km16._watchdog_loop`` cannot see it: our loop never gapped, only delivery did.
+        Result was a dark pad with working keys and a clean log.
+
+        Verified 2026-08-12: standby 23:16-23:34, daemon logging state changes throughout,
+        no watchdog warning, pad dark on resume. Sending nothing but the three enable
+        commands brought it straight back, which is what proves the frames were arriving.
+
+        Writes are fire-and-forget and the device sends nothing unless a key moves, so there
+        is no ack to test and no event to wait for. Do not try to detect this -- re-assert.
+        Enabling a chain re-pushes the pixels the firmware already holds, so it is invisible
+        when nothing is wrong: three 65-byte writes every few seconds, and no repaint.
+        """
+        if self.config.led_reassert_seconds <= 0:  # 0 disables, for debugging
+            return
+        while True:
+            await asyncio.sleep(self.config.led_reassert_seconds)
+            device = self.device
+            if device is None:
+                continue
+            try:
+                device.power_on_leds()
+            except Exception as exc:
+                log.warning("LED chain re-assert failed: %s", exc)
+
     async def input_loop(self) -> None:
         while True:
             event = await self._input_queue.get()
@@ -229,6 +259,7 @@ class Controller:
                 self.herdr_loop(),
                 self.reconcile_loop(),
                 self.device_loop(),
+                self.led_reassert_loop(),
                 self.input_loop(),
                 self.render_loop(),
             )

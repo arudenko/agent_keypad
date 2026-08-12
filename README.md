@@ -364,6 +364,26 @@ Stdout **and** a rotating file, so a failure leaves evidence even when run windo
 `watchdog gap ... exceeded`: the pings stalled long enough for the firmware to disable the LED
 chains. The daemon re-enables them, but repeats mean something is blocking the event loop.
 
+### If the pad goes dark but the keys still work
+
+The firmware watchdog disables both LED chains when pings stop **arriving**, which is not the
+same as the daemon stopping **sending**. Windows Modern Standby suspends USB while the process
+keeps running normally, so the gap check above sees nothing, logs nothing, and never recovers:
+a dark pad, working keys, and a clean log. Observed after an 18-minute standby with the daemon
+logging state changes throughout.
+
+There is no ack to test and no event to wait for, so the daemon does not try to detect this —
+it re-sends the three enable switches every `km16.led_reassert_seconds` (default 5, `0`
+disables). Enabling a chain re-pushes the pixels the firmware already holds, so it is invisible
+when nothing is wrong and costs three 65-byte writes with no repaint.
+
+If you are ever dark with a running daemon, this is the one-liner that distinguishes disabled
+chains from frames not arriving — it lights the pad without painting anything:
+
+```powershell
+.\.venv\Scripts\python.exe -c "import hid; from herdr_km16.km16 import *; d=hid.device(); d.open(VID,PID); [d.write(p) for p in (build_enable_all_leds(True), build_enable_chain(CHAIN_KEYS,True), build_enable_chain(CHAIN_UNDERGLOW,True))]"
+```
+
 To run without a console window:
 
 ```powershell

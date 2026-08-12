@@ -158,6 +158,32 @@ the master on and they are stored in `_keyleds[]` and never shifted out — no e
 warning, just a dark pad. Use `KM16.power_on_leds()`, which sends all three in order (power
 first, because enabling a chain pushes its pixels immediately).
 
+### The watchdog trips on pings not *arriving*, not on us not *sending*
+
+This distinction is the whole trap, and it survived the first fix. `km16._watchdog_loop`
+infers a trip from the gap between its **own iterations**, which only catches a stalled event
+loop. Windows **Modern Standby** suspends USB while the process keeps running normally: the
+loop never gaps, `watchdog_gap_tripped()` stays false, nothing is logged, and the firmware
+disables both chains anyway. Result is a dark pad, fully working keys, and a clean log — which
+reads exactly like "the daemon isn't running", and it is not.
+
+Verified 2026-08-12 on an 80-hour-uptime daemon: standby 23:16–23:34 with agent state changes
+logged at 23:23, 23:24, 23:26 and 23:33, no watchdog warning, dark pad on resume. Sending
+nothing but the three enable commands lit it back up, which is what proves the LED frames were
+arriving the whole time. Modern Standby fires constantly on this machine (dozens of entries a
+day, one of them five hours), so this is routine, not an edge case.
+
+Writes are fire-and-forget and the device is silent unless a key moves, so there is **no ack to
+test and no event to wait for**. Do not add cleverer detection — `Controller.led_reassert_loop`
+re-sends the three enables every `km16.led_reassert_seconds` (default 5) unconditionally.
+Enabling a chain re-pushes the pixels the firmware already holds, so it repaints nothing and is
+invisible when nothing is wrong. `tests/test_led_reassert.py` pins that it keeps firing on a
+*healthy* pad; a change making it conditional would pass every other test in the suite.
+
+Separately, a real USB drop (device re-enumerates) does self-heal: hidapi raises, `device_loop`
+reconnects and calls `power_on_leds()`. That path is fine and was seen working at 21:21 the
+same day. Only the silent suspend needed fixing.
+
 ### hidapi handles are not thread-safe
 
 Reading on one thread while writing on another makes the Windows backend fail with

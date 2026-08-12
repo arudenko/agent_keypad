@@ -11,6 +11,11 @@ herdr:
 
 km16:
   watchdog_ms: 2000        # 0 disables; firmware flashes the layer LED red if we stop pinging
+  # Re-send the three LED enable switches this often. 0 disables. A tripped firmware
+  # watchdog disables both chains, and it trips when pings stop *arriving* -- Windows
+  # Modern Standby suspends USB while we keep running, so watchdog_ms's own gap check
+  # cannot see it. Costs three 65-byte writes and no repaint, so keep this on.
+  led_reassert_seconds: 5
   brightness: 0.35         # starting level; the right knob adjusts it live
   brightness_step: 0.05    # per detent
   underglow: true
