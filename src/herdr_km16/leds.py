@@ -27,6 +27,10 @@ DEFAULT_COLORS = {
 PULSE_DEPTH = {"blocked": 1.0, "working": 0.20}
 PULSE_PERIOD = {"blocked": 0.5}
 DEFAULT_PULSE_PERIOD = 1.0
+# States that blink as a hard square wave (half cycle on, half cycle truly off) instead
+# of the smooth cosine. A cosine only touches zero for an instant and the LED still
+# glows perceptibly at tiny duty, so a full-depth cosine reads as throbbing, not off/on.
+PULSE_SQUARE = frozenset({"blocked"})
 
 
 def parse_color(value: int | str) -> int:
@@ -44,11 +48,17 @@ def scale(color: int, factor: float) -> int:
     return (r << 16) | (g << 8) | b
 
 
-def pulse_factor(phase: float, depth: float, period: float = DEFAULT_PULSE_PERIOD) -> float:
-    """Smooth 0..1 wave. `phase` is a free-running time in seconds; `period` is one full
-    bright-dark-bright cycle. Depth 1.0 touches complete darkness at the trough."""
+def pulse_factor(phase: float, depth: float, period: float = DEFAULT_PULSE_PERIOD,
+                 square: bool = False) -> float:
+    """0..1 wave. `phase` is a free-running time in seconds; `period` is one full cycle.
+
+    Cosine by default (smooth breathe). `square` holds full brightness for the first half
+    of the cycle and the dimmed level for the entire second half -- with depth 1.0 that is
+    hard on/off, not a dip."""
     if depth <= 0:
         return 1.0
+    if square:
+        return 1.0 if (phase % period) < (period / 2) else 1.0 - depth
     return 1.0 - depth * (0.5 - 0.5 * math.cos(2 * math.pi * phase / period))
 
 
@@ -104,6 +114,7 @@ class LedRenderer:
                     phase,
                     PULSE_DEPTH.get(agent.status, 0.0),
                     PULSE_PERIOD.get(agent.status, DEFAULT_PULSE_PERIOD),
+                    square=agent.status in PULSE_SQUARE,
                 )
             if slot == selected:
                 # Brighten the selection; never replace the semantic colour.
@@ -125,6 +136,7 @@ class LedRenderer:
                         phase,
                         PULSE_DEPTH.get(status, 0.0),
                         PULSE_PERIOD.get(status, DEFAULT_PULSE_PERIOD),
+                        square=status in PULSE_SQUARE,
                     )
                 return [scale(self.color_for(status), factor)] * size
         return [scale(self.colors["idle"], self.brightness)] * size
