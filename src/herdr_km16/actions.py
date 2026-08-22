@@ -107,12 +107,15 @@ class ActionRouter:
             return
         if session_id is not None:
             slot = self.slots.slot_of(session_id)
+            self.selected = slot
             if slot is not None:
-                self.selected = slot
                 log.info("next-attention -> slot %s (%s)", slot, session_id)
             else:
                 # The session is real but holds no key (overflow, or a stale cache).
-                log.info("next-attention -> %s (no key slot)", session_id)
+                # agterm has ALREADY switched to it, so keeping the old selection would
+                # aim a subsequent approve at a session the user is no longer looking
+                # at. No key means no selection; approve then does nothing.
+                log.info("next-attention -> %s (no key slot; selection cleared)", session_id)
         if self.config.activate_app:
             await self.client.activate_app()
 

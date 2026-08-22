@@ -101,10 +101,13 @@ case "${1:-}" in
         ;;
     stop)
         agent_id="$(agent_id_from_stdin)"
-        if [ -n "$agent_id" ] && [ -e "$MARK_DIR/$agent_id" ]; then
+        if [ -n "$agent_id" ]; then
+            # A known id with no matching marker (aged out, duplicate stop) is a no-op:
+            # deleting some other marker instead could report `completed` while an
+            # unrelated subagent is still running.
             rm -f "$MARK_DIR/$agent_id" 2>/dev/null || true
         else
-            # Unidentifiable subagent: drop one marker so the count still drains.
+            # Only a genuinely unidentifiable subagent drains one marker blind.
             oldest="$(find "$MARK_DIR" -type f 2>/dev/null | head -1)"
             [ -n "$oldest" ] && rm -f "$oldest" 2>/dev/null || true
         fi

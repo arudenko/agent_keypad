@@ -168,13 +168,16 @@ def test_next_attention_is_not_gated_by_long_press():
     assert client.jumped == 1 and router.selected is not None
 
 
-def test_next_attention_with_no_slot_for_the_answer_keeps_the_selection():
-    """agterm can land on a session the pad has no key for (overflow); don't corrupt state."""
+def test_next_attention_with_no_slot_for_the_answer_clears_the_selection():
+    """agterm can land on a session the pad has no key for (overflow). agterm has
+    already switched there, so keeping the old selection would aim a subsequent approve
+    at a session the user is no longer looking at -- it must clear instead."""
     router, client, _ = make_router()
     client.jump_result = "not-a-known-session"
     router.selected = 1
     press(router, 15, held_ms=40)
-    assert router.selected == 1
+    assert router.selected is None
+    press(router, 12, held_ms=800)  # approve with no selection must do nothing
     assert client.sent == []
 
 
