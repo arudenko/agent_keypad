@@ -113,16 +113,31 @@ def test_both_live_states_fade_and_pace_separates_them():
 
 
 def test_fading_keys_reach_truly_dark_at_their_own_troughs():
-    from herdr_km16.leds import PULSE_PERIOD, LedRenderer
+    from herdr_km16.leds import PHASE_STAGGER_SECONDS, PULSE_PERIOD, LedRenderer
     from herdr_km16.mapping import Agent, SlotMap
 
     slots = SlotMap()
     slots.sync([Agent("w1:p1", "blocked"), Agent("w2:p1", "working")])
     renderer = LedRenderer()
     assert renderer.key_frame(slots, phase=0.0)[0] != 0x000000
-    assert renderer.key_frame(slots, phase=0.0)[1] != 0x000000
     assert renderer.key_frame(slots, phase=PULSE_PERIOD["blocked"] / 2)[0] == 0x000000
-    assert renderer.key_frame(slots, phase=PULSE_PERIOD["working"] / 2)[1] == 0x000000
+    # slot 1 carries one stagger step, so its trough arrives that much earlier
+    slot1_trough = PULSE_PERIOD["working"] / 2 - PHASE_STAGGER_SECONDS
+    assert renderer.key_frame(slots, phase=slot1_trough)[1] == 0x000000
+
+
+def test_keys_in_the_same_state_breathe_out_of_step():
+    """Several working agents must not pulse in lockstep; each key is phase-staggered.
+    Key 0 keeps offset zero; the underglow summary stays on the shared clock."""
+    from herdr_km16.leds import PHASE_STAGGER_SECONDS, PULSE_PERIOD, LedRenderer
+    from herdr_km16.mapping import Agent, SlotMap
+
+    assert PULSE_PERIOD["working"] % PHASE_STAGGER_SECONDS != 0
+    assert PULSE_PERIOD["blocked"] % PHASE_STAGGER_SECONDS != 0
+    slots = SlotMap()
+    slots.sync([Agent(f"w{i}", "working") for i in range(3)])
+    frame = LedRenderer().key_frame(slots, phase=0.4)
+    assert len({frame[0], frame[1], frame[2]}) == 3, "same state, three distinct phases"
 
 
 def test_layer_led_shows_the_most_urgent_state_at_full_intensity():

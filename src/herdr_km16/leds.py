@@ -27,6 +27,12 @@ DEFAULT_COLORS = {
 PULSE_DEPTH = {"blocked": 1.0, "working": 1.0}
 PULSE_PERIOD = {"blocked": 1.0, "working": 2.0}
 DEFAULT_PULSE_PERIOD = 1.0
+# Per-key phase offset so several animated keys breathe out of step instead of in
+# lockstep -- a pad of agents pulsing in unison reads as one machine, staggered reads as
+# many independent workers. Deliberately not a divisor of either period, so no two keys
+# ever align for long. Key 0 keeps offset zero. The underglow and the layer LED are
+# whole-pad summaries and stay on the shared clock.
+PHASE_STAGGER_SECONDS = 0.31
 # States that blink as a hard square wave (half cycle on, half cycle truly off) instead
 # of the smooth fade. Currently none -- the square variant stays available in
 # pulse_factor for anyone who prefers off/on to breathing.
@@ -111,7 +117,7 @@ class LedRenderer:
             factor = self.brightness
             if self.pulse:
                 factor *= pulse_factor(
-                    phase,
+                    phase + slot * PHASE_STAGGER_SECONDS,
                     PULSE_DEPTH.get(agent.status, 0.0),
                     PULSE_PERIOD.get(agent.status, DEFAULT_PULSE_PERIOD),
                     square=agent.status in PULSE_SQUARE,
