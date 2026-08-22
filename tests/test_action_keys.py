@@ -26,6 +26,7 @@ class FakeClient:
         self.focused: list[str] = []
         self.jumped: int = 0
         self.jump_result: str | None = "w1:p1"
+        self.activated: int = 0
 
     async def send_keys(self, target, keys):
         self.sent.append((target, keys))
@@ -36,6 +37,9 @@ class FakeClient:
     async def next_attention(self):
         self.jumped += 1
         return self.jump_result
+
+    async def activate_app(self):
+        self.activated += 1
 
 
 def make_router(action_keys=None, **overrides):
@@ -172,6 +176,39 @@ def test_next_attention_with_no_slot_for_the_answer_keeps_the_selection():
     press(router, 15, held_ms=40)
     assert router.selected == 1
     assert client.sent == []
+
+
+# --- app activation ---------------------------------------------------------
+
+
+def test_focus_also_raises_the_macos_app():
+    router, client, _ = make_router()
+    press(router, 0, held_ms=50)
+    assert client.focused == ["w1:p1"]
+    assert client.activated == 1, "a pad press means 'show me': raise agterm too"
+
+
+def test_next_attention_also_raises_the_macos_app():
+    router, client, _ = make_router()
+    press(router, 15, held_ms=40)
+    assert client.activated == 1
+
+
+def test_activate_app_false_keeps_agterm_in_the_background():
+    router, client, _ = make_router(activate_app=False)
+    press(router, 0, held_ms=50)
+    press(router, 15, held_ms=40)
+    assert client.focused == ["w1:p1"] and client.jumped == 1
+    assert client.activated == 0
+
+
+def test_approve_reject_interrupt_never_raise_the_app():
+    """Acting on the already-selected agent is not a request to switch applications."""
+    router, client, _ = make_router()
+    router.selected = 0
+    for key in (12, 13, 14):
+        press(router, key, held_ms=800)
+    assert client.activated == 0
 
 
 # --- rendering --------------------------------------------------------------

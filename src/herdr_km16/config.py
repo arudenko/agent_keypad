@@ -32,6 +32,9 @@ class Config:
     poll_seconds: float = 1.5
     # Sleep between events.read polls when the queue is idle (agtermctl uses 250ms).
     event_poll_seconds: float = 0.25
+    # Raise the agterm app over the frontmost macOS application when a pad key focuses a
+    # session or Next jumps. The control socket alone only moves agterm's internal focus.
+    activate_app: bool = True
     watchdog_ms: int = 2000
     led_reassert_seconds: float = 5.0
     brightness: float = 0.35
@@ -87,6 +90,7 @@ def load_config(path: str | Path | None = None) -> Config:
     cfg.reconnect_seconds = float(agterm.get("reconnect_seconds", cfg.reconnect_seconds))
     cfg.poll_seconds = float(agterm.get("poll_seconds", cfg.poll_seconds))
     cfg.event_poll_seconds = float(agterm.get("event_poll_seconds", cfg.event_poll_seconds))
+    cfg.activate_app = bool(agterm.get("activate_app", cfg.activate_app))
     if cfg.poll_seconds <= 0:
         raise ValueError(f"agterm.poll_seconds must be positive, got {cfg.poll_seconds}")
     if cfg.event_poll_seconds <= 0:

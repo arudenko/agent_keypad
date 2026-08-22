@@ -10,6 +10,9 @@ agterm:
   poll_seconds: 5
   # Sleep between events.read polls when no events are queued (agtermctl uses 250ms).
   event_poll_seconds: 0.25
+  # Also bring the agterm app to the macOS foreground when a pad key focuses a session
+  # or Next jumps -- the socket alone only moves agterm's internal selection.
+  activate_app: true
 
 km16:
   watchdog_ms: 2000        # 0 disables; firmware flashes the layer LED red if we stop pinging

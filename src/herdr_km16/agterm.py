@@ -90,6 +90,9 @@ def _unwrap(message: dict[str, Any]) -> Any:
     return message.get("result")
 
 
+APP_BUNDLE_ID = "com.umputun.agterm"
+
+
 class AgtermClient:
     """Request/response side. Each call uses a fresh connection (the server is one-shot)."""
 
@@ -147,6 +150,24 @@ class AgtermClient:
         return await self.call(
             "session.type", target=target, args={"text": "".join(keys), "select": False}
         )
+
+    async def activate_app(self) -> None:
+        """Bring agterm to the macOS foreground.
+
+        The control socket's window/session selection moves agterm's *internal* focus but
+        never raises the app over whatever application is frontmost (verified: frontmost
+        stays put after `window select`). `open -b` activates a running app without
+        launching a second instance. Fixed argument array, no shell. Best-effort: a
+        missing `open` (non-macOS) is not an error.
+        """
+        try:
+            process = await asyncio.create_subprocess_exec(
+                "open", "-b", APP_BUNDLE_ID,
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+            )
+            await process.wait()
+        except (FileNotFoundError, OSError):
+            pass
 
     async def next_attention(self) -> str | None:
         """Server-side jump to the next blocked/completed session.

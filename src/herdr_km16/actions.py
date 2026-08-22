@@ -77,6 +77,10 @@ class ActionRouter:
             await self.client.focus_agent(agent.target)
         except AgtermError as exc:
             log.warning("focus %s failed: %s", agent.target, exc)
+            return
+        if self.config.activate_app:
+            # A physical press means "show me": raise agterm over the frontmost app too.
+            await self.client.activate_app()
 
     async def send_named_key(self, action: str) -> None:
         """Send esc / enter / ctrl+c to the selected agent."""
@@ -109,6 +113,8 @@ class ActionRouter:
             else:
                 # The session is real but holds no key (overflow, or a stale cache).
                 log.info("next-attention -> %s (no key slot)", session_id)
+        if self.config.activate_app:
+            await self.client.activate_app()
 
     async def run_action(self, action: str, held_ms: float) -> None:
         """Run a bottom-row action key against the selected agent."""
