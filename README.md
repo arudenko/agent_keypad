@@ -69,6 +69,13 @@ python3 -m venv .venv
 Logs go to `~/Library/Logs/agterm-keypad/daemon.log` (falling back to
 `~/.local/state/agterm-keypad/` off macOS); `--log-file` / `--no-log-file` still apply.
 
+Flashing on macOS uses the bash ports of the scripts below — `scripts/backup-km16-firmware.sh`,
+`scripts/flash-rawmacropad.sh`, `scripts/restore-km16-firmware.sh` — with
+`brew install dfu-util arduino-cli` as the only setup; there is no Zadig/WinUSB step at all.
+`backup` refuses anything but an exact 122880-byte read and records `backup.bin` +
+`backup.sha256`; `flash` refuses to run without that verified pair and asks for explicit
+confirmation. Everything else in [Flashing the keypad](#flashing-the-keypad) still applies.
+
 ### Input Monitoring permission
 
 The process running the daemon (your terminal app, or the Python binary when launched by
