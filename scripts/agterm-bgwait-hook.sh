@@ -46,21 +46,26 @@ except Exception:
 }
 
 # The path a backgrounded Bash launch will stream its output to, or nothing if this
-# PostToolUse payload is not a background launch. Read from the raw JSON defensively:
-# the response shape is not documented, but the output path phrasing is stable.
+# PostToolUse payload is not a background launch. Verified payload shape: tool_response
+# is {"stdout": ..., "backgroundTaskId": "<id>"} with NO path -- the path is derived
+# from the harness layout /private/tmp/claude-<uid>/<project-slug>/<session>/tasks/,
+# where the slug is transcript_path's parent directory name. A wrong derivation fails
+# safe: turn-end treats a missing file as finished and reaps the marker.
 background_output_from_stdin() {
-    python3 -c 'import json, re, sys
-raw = sys.stdin.read()
+    python3 -c 'import json, os, sys
 try:
-    d = json.loads(raw)
+    d = json.load(sys.stdin)
 except Exception:
     sys.exit(0)
 if d.get("tool_name") != "Bash":
     sys.exit(0)
-blob = json.dumps(d.get("tool_response", "")) + json.dumps(d.get("tool_input", ""))
-m = re.search(r"Output is being written to: ([^\s\"\\\\]+)", blob)
-if m and ("run_in_background" in blob or "background" in blob):
-    print(m.group(1))' 2>/dev/null || true
+response = d.get("tool_response")
+task_id = response.get("backgroundTaskId") if isinstance(response, dict) else None
+slug = os.path.basename(os.path.dirname(d.get("transcript_path", "")))
+session = d.get("session_id", "")
+if task_id and slug and session:
+    print(f"/private/tmp/claude-{os.getuid()}/{slug}/{session}/tasks/{task_id}.output")' \
+        2>/dev/null || true
 }
 
 prune_stale() {
@@ -105,7 +110,10 @@ case "${1:-}" in
         fi
         ;;
     posttool)
-        out="$(background_output_from_stdin)"
+        payload="$(cat 2>/dev/null || true)"
+        # Debug tap: `mkdir /tmp/bgwait-debug` to capture raw payloads; rmdir to stop.
+        [ -d /tmp/bgwait-debug ] && printf '%s' "$payload" > "/tmp/bgwait-debug/$(date +%s)-$$.json" 2>/dev/null
+        out="$(printf '%s' "$payload" | background_output_from_stdin)"
         [ -n "$out" ] || exit 0
         mkdir -p "$MARK_DIR" 2>/dev/null || exit 0
         # Name the marker by the output path so relaunches dedupe naturally.
