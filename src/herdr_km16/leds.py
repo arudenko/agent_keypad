@@ -21,11 +21,11 @@ DEFAULT_COLORS = {
 }
 
 # States that pulse: depth (0 = steady, 1 = fully dark at the trough) and cycle period in
-# seconds. Motion means "needs attention": ONLY blocked moves -- a full-depth fade from
-# dark to red and back once a second. Everything else holds steady so the one animated
-# key is unmissable.
-PULSE_DEPTH = {"blocked": 1.0}
-PULSE_PERIOD = {"blocked": 1.0}
+# seconds. Both live states fade smoothly from dark to lit and back; the PACE separates
+# them -- urgent red (blocked) cycles once a second, calm blue (working) breathes at half
+# that speed. The at-rest states (idle, done) hold steady.
+PULSE_DEPTH = {"blocked": 1.0, "working": 1.0}
+PULSE_PERIOD = {"blocked": 1.0, "working": 2.0}
 DEFAULT_PULSE_PERIOD = 1.0
 # States that blink as a hard square wave (half cycle on, half cycle truly off) instead
 # of the smooth fade. Currently none -- the square variant stays available in

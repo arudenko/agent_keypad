@@ -151,9 +151,10 @@ Every colour below is a default in [`config.yaml`](config.yaml) and can be chang
 
 Two of them move, so urgency reads from the corner of your eye:
 
-- **Only `blocked` moves** — a smooth fade from fully dark to red and back (100% depth,
-  1 s cycle). Motion means "needs attention", so the one animated key is unmissable.
-- Everything else is steady, and the pad sends no HID traffic at all while nothing pulses.
+- **Both live states fade** from fully dark to lit and back (100% depth): urgent red
+  (`blocked`) cycles once a second, calm blue (`working`) breathes at half that pace — so
+  urgency reads from the corner of your eye even before the colour does.
+- The at-rest states are steady, and the pad sends no HID traffic at all while nothing pulses.
 
 The whole pad runs at `brightness` (default `0.35`) so it is not glaring. The **currently
 selected** key is drawn at up to double brightness — brighter, never a different colour, so
@@ -170,9 +171,9 @@ The 6 underglow LEDs summarise the entire session, so you get peripheral warning
 reading individual keys. Most urgent state present anywhere wins:
 
 ```
-any blocked  ->  red        (fading)
+any blocked  ->  red        (fast fade)
 else done    ->  green
-else working ->  blue
+else working ->  blue       (slow fade)
 else         ->  dim white
 ```
 

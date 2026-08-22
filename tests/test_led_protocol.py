@@ -94,32 +94,32 @@ def test_parse_event_ignores_unknown_and_empty():
     assert km16.parse_event([0x7F, 0, 0]) is None
 
 
-def test_only_blocked_animates_and_it_fades_to_full_dark():
-    """Motion means 'needs attention': blocked alone pulses, as a smooth full-depth fade
-    that reaches true 0x000000 at its trough. working holds steady."""
+def test_both_live_states_fade_and_pace_separates_them():
+    """working and blocked both fade smoothly, full depth (true 0x000000 at the trough);
+    blocked cycles twice as fast so urgency reads even before colour does."""
     from herdr_km16.leds import PULSE_DEPTH, PULSE_PERIOD, PULSE_SQUARE, pulse_factor
 
-    assert set(PULSE_DEPTH) == {"blocked"}, "only blocked may move"
-    assert PULSE_DEPTH["blocked"] == 1.0
+    assert set(PULSE_DEPTH) == {"blocked", "working"}
     assert PULSE_SQUARE == frozenset(), "fade, not hard blink"
-    period = PULSE_PERIOD["blocked"]
-    assert pulse_factor(0.0, 1.0, period) == pytest.approx(1.0), "crest = fully lit"
-    assert pulse_factor(period / 2, 1.0, period) == pytest.approx(0.0), "trough = fully dark"
-    assert pulse_factor(period, 1.0, period) == pytest.approx(1.0), "one cycle per period"
-    # the fade is smooth: a quarter cycle sits strictly between lit and dark
-    assert 0.0 < pulse_factor(period / 4, 1.0, period) < 1.0
+    for state in ("blocked", "working"):
+        assert PULSE_DEPTH[state] == 1.0
+        period = PULSE_PERIOD[state]
+        assert pulse_factor(0.0, 1.0, period) == pytest.approx(1.0), "crest = fully lit"
+        assert pulse_factor(period / 2, 1.0, period) == pytest.approx(0.0), "trough = dark"
+        assert pulse_factor(period, 1.0, period) == pytest.approx(1.0), "one cycle/period"
+        # the fade is smooth: a quarter cycle sits strictly between lit and dark
+        assert 0.0 < pulse_factor(period / 4, 1.0, period) < 1.0
+    assert PULSE_PERIOD["blocked"] < PULSE_PERIOD["working"], "urgent fades faster"
 
 
-def test_blocked_key_fades_to_dark_while_working_stays_steady():
+def test_fading_keys_reach_truly_dark_at_their_own_troughs():
     from herdr_km16.leds import PULSE_PERIOD, LedRenderer
     from herdr_km16.mapping import Agent, SlotMap
 
-    trough = PULSE_PERIOD["blocked"] / 2
     slots = SlotMap()
     slots.sync([Agent("w1:p1", "blocked"), Agent("w2:p1", "working")])
     renderer = LedRenderer()
-    crest_frame = renderer.key_frame(slots, phase=0.0)
-    trough_frame = renderer.key_frame(slots, phase=trough)
-    assert crest_frame[0] != 0x000000
-    assert trough_frame[0] == 0x000000, "the fade must reach truly dark"
-    assert crest_frame[1] == trough_frame[1], "working never moves"
+    assert renderer.key_frame(slots, phase=0.0)[0] != 0x000000
+    assert renderer.key_frame(slots, phase=0.0)[1] != 0x000000
+    assert renderer.key_frame(slots, phase=PULSE_PERIOD["blocked"] / 2)[0] == 0x000000
+    assert renderer.key_frame(slots, phase=PULSE_PERIOD["working"] / 2)[1] == 0x000000
