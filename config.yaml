@@ -36,8 +36,9 @@ colors:
 
 mapping:
   preserve_slots: true
-  # Close gaps when a session ends: survivors shift down in order, freed keys go dark.
-  # false = fully sticky keys (a closed session just leaves its key dark).
+  # Mirror agterm's sidebar order, gap-free: closing a session shifts the ones below it
+  # down, and reordering sessions in the sidebar remaps the keys to match.
+  # false = fully sticky keys (nothing ever moves; a closed session leaves its key dark).
   compact: true
   # Pin an agent to a key by agterm session UUID. Unpinned keys are allocated
   # lowest-free-first and stay put for the life of the agent.

@@ -223,8 +223,9 @@ The port is done and verified on hardware:
   (NOT QMK's 0xFF60 -- the stock VIA firmware is the one that exposes 0xFF60).
 - Keys, encoders and LED chains verified end-to-end against live agterm sessions; keys
   focus (and raise the app via `open -b`), bottom row acts, Next jumps server-side.
-- `mapping.compact: true` closes key gaps on session close; the reconcile makes the
-  selection follow the AGENT across the shift so a post-close approve cannot misfire.
+- `mapping.compact: true` mirrors the sidebar order gap-free (close shifts keys up,
+  reorder remaps); the reconcile makes the selection follow the AGENT across any shift
+  so a post-close/post-reorder approve cannot misfire.
 - Both live states animate as full-depth fades to true dark and back: `blocked` red at
   1 s, `working` blue at 2 s -- pace signals urgency (`leds.PULSE_*`; the square-wave
   blink variant remains available in `pulse_factor`).

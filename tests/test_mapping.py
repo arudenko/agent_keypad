@@ -158,3 +158,26 @@ def test_compact_status_change_still_never_moves_anything():
     slots.update_status("a", "blocked")
     slots.sync([agent("a", "blocked"), agent("b", "blocked")])
     assert slots.slots == before
+
+
+def test_compact_mirrors_a_sidebar_reorder():
+    """Dragging sessions around in agterm remaps the keys to match the new order."""
+    slots = compacting()
+    slots.sync([agent("a"), agent("b"), agent("c")])
+    slots.sync([agent("c"), agent("a"), agent("b")])  # user dragged c to the top
+    assert slots.slots[:3] == ["c", "a", "b"]
+
+
+def test_compact_newcomer_takes_its_tree_position_not_the_end():
+    slots = compacting()
+    slots.sync([agent("a"), agent("c")])
+    slots.sync([agent("a"), agent("new"), agent("c")])  # created between a and c
+    assert slots.slots[:3] == ["a", "new", "c"]
+
+
+def test_compact_pin_holds_its_key_through_a_reorder():
+    slots = compacting(static={0: "pinned"})
+    slots.sync([agent("x"), agent("pinned"), agent("y")])
+    assert slots.slots[:3] == ["pinned", "x", "y"]
+    slots.sync([agent("y"), agent("x"), agent("pinned")])
+    assert slots.slots[:3] == ["pinned", "y", "x"], "the pin never moves; the rest mirror"

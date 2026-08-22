@@ -219,10 +219,11 @@ else.** (Set `agterm.activate_app: false` to keep the app in the background.) It
 a prompt, never sends a keystroke, and never approves a `blocked` agent. Pressing an empty key
 does nothing. Sending input is the bottom row's job, described below.
 
-A session keeps its key while it lives, new sessions take the lowest free key, and a state
-change never reshuffles the pad. When a session closes, the shipped `mapping.compact: true`
-shifts the survivors down (in order, so neighbours stay neighbours) and every key past them
-goes dark; set it `false` for fully sticky keys where a close just leaves its key unlit. Pin
+With the shipped `mapping.compact: true` the pad **mirrors agterm's sidebar order**,
+gap-free: closing a session shifts the ones below it down, reordering sessions in the
+sidebar remaps the keys to match, and a new session takes the key its sidebar position
+says. A state change never reshuffles anything. Set it `false` for fully sticky keys,
+where a session keeps its key for life and a close just leaves that key unlit. Pin
 a session to a specific key by its agterm session UUID:
 
 ```yaml
@@ -388,7 +389,7 @@ actions, which actions are guarded, and how agents pin to keys. No source edits 
 
 ```yaml
 mapping:
-  compact: true      # close gaps when a session ends; false = fully sticky keys
+  compact: true      # mirror the sidebar order; false = fully sticky keys
   static:            # pin a session to a key by its agterm session UUID
     0: "EF084D05-83BB-44BD-AE3B-DD7BD9E8C27D"
 

@@ -4,9 +4,10 @@ The device is only useful if a key keeps meaning the same agent. Slots are there
 an agent holds its key for as long as it is alive, new agents take the lowest free key, and
 nothing is ever re-sorted on a state change.
 
-With ``compact=True`` a departure additionally closes the gap: survivors shift down (in
-their existing relative order, so neighbours stay neighbours) and every key past them goes
-dark. A status change still never moves anything -- only an agent leaving does.
+With ``compact=True`` the pad instead MIRRORS the snapshot order: agents occupy the keys
+gap-free in the order the tree lists them (agterm's sidebar, top to bottom), so closing a
+session shifts the ones below it down, and reordering sessions in the sidebar remaps the
+keys to match. A status change still never moves anything -- the tree order does.
 """
 
 from __future__ import annotations
@@ -58,7 +59,8 @@ class SlotMap:
     preserve_slots: bool = True
     # Keys bound to actions instead of agents; never allocated to an agent.
     action_slots: frozenset[int] = frozenset()
-    # Close gaps when an agent departs (see the module docstring). Off = fully sticky.
+    # Mirror the snapshot (sidebar) order gap-free (see the module docstring).
+    # Off = fully sticky keys.
     compact: bool = False
     _slots: list[str | None] = field(default_factory=list, init=False)
     _agents: dict[str, Agent] = field(default_factory=dict, init=False)
@@ -154,8 +156,9 @@ class SlotMap:
                 self._allocate(identity)
 
     def _compact(self, incoming: dict[str, Agent]) -> None:
-        """Rebuild the map gap-free: pins first, then survivors in their existing
-        relative order, then newcomers; every remaining key is left unlit."""
+        """Rebuild the map gap-free in snapshot order: pins hold their keys, everyone
+        else fills the free keys top-to-bottom exactly as the tree lists them, and every
+        remaining key is left unlit. `incoming` preserves the snapshot's order."""
         slots: list[str | None] = [None] * self.slot_count
         placed: set[str] = set()
         for slot, identity in self.static.items():
@@ -163,8 +166,7 @@ class SlotMap:
                 if identity in incoming:
                     slots[slot] = identity
                     placed.add(identity)
-        order = [i for i in self._slots if i and i in incoming and i not in placed]
-        order += [i for i in incoming if i not in placed and i not in order]
+        order = [i for i in incoming if i not in placed]
         free = [
             slot for slot in range(self.slot_count)
             if slot not in self.action_slots and slots[slot] is None
