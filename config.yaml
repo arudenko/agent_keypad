@@ -65,12 +65,14 @@ controls:
   key_press: focus_agent   # focus_agent | none
 
   main_encoder:            # key index 16
-    rotate: cycle_attention_agents
+    # Loop through EVERY session in sidebar order (wrapping), including sessions
+    # beyond the pad's keys -- a keyless selection still takes bottom-row actions.
+    rotate: cycle_agents
     focus_on_turn: true    # focus as the knob lands, no press needed
     press: focus_selected  # redundant with focus_on_turn, but harmless
 
   left_encoder:            # key index 17
-    rotate: cycle_agents
+    rotate: cycle_attention_agents   # keyed agents only, blocked/done first
     press: escape
 
   right_encoder:           # key index 18

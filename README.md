@@ -291,17 +291,22 @@ All three are also push buttons. Turning and pressing use the same index.
 
 | Control | Index | Turn | Press |
 | --- | --- | --- | --- |
-| Main encoder | 16 | Cycle **by attention priority**, focusing as it lands | Focus the selected agent |
-| Small left | 17 | Cycle agents in slot order | Send **Esc** |
+| Main encoder | 16 | Cycle **every session in sidebar order**, focusing as it lands | Focus the selected agent |
+| Small left | 17 | Cycle keyed agents by attention priority | Send **Esc** |
 | Small right | 18 | **Brightness** — dim/brighten the whole pad | Send **Enter** — long press only |
 
-Attention priority is `blocked` → `done` → `working` → `idle` → `unknown`, so turning the main
+The main knob loops through the whole sidebar top to bottom and wraps around — every session
+in agterm, including ones beyond the pad's keys. A selected session without a key shows no
+highlight, but the bottom-row actions still target it.
+
+Attention priority is `blocked` → `done` → `working` → `idle` → `unknown`, so turning the left
 knob walks you through whatever needs you most first. Ties break by slot number, so the order
 stays stable.
 
-The main encoder focuses as you turn (`focus_on_turn: true`) — no press needed. A fast spin
-only focuses where you stop: each detent cancels the previous pending focus, so agterm is not
-strobed through every session on the way past.
+The main encoder focuses as you turn (`focus_on_turn: true`) — no press needed. A slow turn
+switches agterm on every detent; a fast spin is throttled to one focus per 150 ms — sampling
+the loop in order rather than strobing agterm through every session — and always ends on the
+session where you stop.
 
 The other two only move the selection and talk to nobody; the highlighted key brightens and
 agterm is contacted when you press. Set `focus_on_turn` on any encoder to change that.

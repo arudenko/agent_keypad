@@ -364,11 +364,13 @@ def test_selection_follows_the_agent_across_compaction(monkeypatch):
         for s in ("AAAA", "BBBB", "CCCC")
     ]
     asyncio.run(serve(three))
-    controller.router.selected = 2  # the user selects CCCC on key 2
+    controller.router.selected = "CCCC"  # the user selects CCCC on key 2
+    assert controller.router.selected_slot == 2
 
     asyncio.run(serve([three[0], three[2]]))  # BBBB closes; CCCC compacts down to key 1
     assert controller.slots.slot_of("CCCC") == 1
-    assert controller.router.selected == 1, "selection follows the agent, not the key"
+    assert controller.router.selected == "CCCC"
+    assert controller.router.selected_slot == 1, "the highlight follows the agent, not the key"
 
     asyncio.run(serve([three[0]]))  # CCCC itself closes
     assert controller.router.selected is None, "a dead selection must clear, not dangle"

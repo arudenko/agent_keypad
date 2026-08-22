@@ -98,6 +98,19 @@ class SlotMap:
     def live_agents(self) -> list[Agent]:
         return [a for a in (self.agent_at(i) for i in range(self.slot_count)) if a]
 
+    def agent(self, identity: str) -> Agent | None:
+        """Look up a live agent by identity, whether or not it holds a key."""
+        return self._agents.get(identity)
+
+    def session_order(self) -> list[str]:
+        """Every live session's identity in snapshot (sidebar) order.
+
+        Unlike the slot views this includes sessions beyond the pad's key capacity:
+        `_agents` mirrors the last snapshot, which lists sessions exactly as the
+        sidebar shows them.
+        """
+        return list(self._agents)
+
     def attention_order(self) -> list[int]:
         """Occupied slots ordered by how much they want the user, then by slot for stability."""
         scored = []

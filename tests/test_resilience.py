@@ -74,13 +74,13 @@ def test_agterm_errors_still_take_the_quiet_path(monkeypatch, caplog):
 
 
 def test_outage_clears_the_selection_with_the_slots(monkeypatch, caplog):
-    """The identity map is discarded on an outage; a surviving numeric selection could
-    aim a post-reconnect approve at whichever session lands on that key."""
+    """The identity map is discarded on an outage; a dangling selection would silently
+    re-arm the moment a session with the same id reappears after reconnect."""
     from herdr_km16.mapping import Agent
 
     controller = m.Controller(Config())
     controller.slots.sync([Agent("AAAA", "working", terminal_id="AAAA")])
-    controller.router.selected = 0
+    controller.router.selected = "AAAA"
 
     async def failing_reconcile():
         raise AgtermError("connection_closed", "socket gone")

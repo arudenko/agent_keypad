@@ -26,8 +26,14 @@ log = logging.getLogger("herdr_km16.actions")
 
 DEBOUNCE_SECONDS = 0.05
 
-# How long the knob must rest before its selection is focused.
+# Minimum spacing between focus calls while the knob turns. The first detent focuses
+# immediately, a spin focuses at most once per window (in order, on the way past), and
+# the resting position always gets the final focus.
 FOCUS_COALESCE_SECONDS = 0.15
+
+# Raising the app is once per burst of activity, not once per focus: a spin at the
+# throttle rate would otherwise spawn an `open` process every window for no effect.
+ACTIVATE_APP_SECONDS = 1.0
 
 # Brightness knob limits. The floor stays above zero so the pad never looks dead.
 BRIGHTNESS_MIN = 0.03
@@ -40,20 +46,34 @@ class ActionRouter:
     client: AgtermClient
     slots: SlotMap
     renderer: object | None = None
-    selected: int | None = None
+    # The selected session's IDENTITY, never a key number: the wheel can land on a
+    # session beyond the pad's keys, and an identity survives compaction moving keys.
+    selected: str | None = None
     _press_started: dict[int, float] = field(default_factory=dict, init=False)
     _last_press: dict[int, float] = field(default_factory=dict, init=False)
     _focus_task: object = field(default=None, init=False)
+    _focus_fired: float = field(default=0.0, init=False)
+    _activated_at: float = field(default=0.0, init=False)
 
     # --- selection --------------------------------------------------------
 
-    def _ordered_slots(self, action: str) -> list[int]:
+    @property
+    def selected_slot(self) -> int | None:
+        """The selected session's key, when it holds one (drives the LED highlight)."""
+        return self.slots.slot_of(self.selected) if self.selected is not None else None
+
+    def _selected_agent(self):
+        return self.slots.agent(self.selected) if self.selected is not None else None
+
+    def _cycle_order(self, action: str) -> list[str]:
         if action == "cycle_attention_agents":
-            return self.slots.attention_order()
-        return [i for i in range(self.slots.slot_count) if self.slots.agent_at(i)]
+            order = [self.slots.agent_at(slot) for slot in self.slots.attention_order()]
+            return [agent.identity for agent in order if agent is not None]
+        # cycle_agents: every session in sidebar order, keyed or not.
+        return self.slots.session_order()
 
     def cycle(self, action: str, delta: int) -> None:
-        order = self._ordered_slots(action)
+        order = self._cycle_order(action)
         if not order:
             self.selected = None
             return
@@ -62,8 +82,9 @@ class ActionRouter:
         else:
             index = 0 if delta > 0 else len(order) - 1
         self.selected = order[index]
-        agent = self.slots.agent_at(self.selected)
-        log.info("select slot %s (%s, %s)", self.selected, agent.target if agent else "?", agent.status if agent else "?")
+        agent = self._selected_agent()
+        log.info("select %s (slot %s, %s)", agent.target if agent else "?",
+                 self.selected_slot, agent.status if agent else "?")
 
     # --- agterm operations ------------------------------------------------
 
@@ -71,22 +92,32 @@ class ActionRouter:
         agent = self.slots.agent_at(slot)
         if agent is None:
             return
-        self.selected = slot
-        log.info("focus slot %s -> %s (%s)", slot, agent.target, agent.status)
+        self.selected = agent.identity
+        await self._focus(agent)
+
+    async def focus_selected(self) -> None:
+        """Focus the selected session, whether or not it holds a key."""
+        agent = self._selected_agent()
+        if agent is not None:
+            await self._focus(agent)
+
+    async def _focus(self, agent) -> None:
+        log.info("focus %s (slot %s, %s)", agent.target, self.selected_slot, agent.status)
         try:
             await self.client.focus_agent(agent.target)
         except (AgtermError, OSError) as exc:  # agterm gone mid-press is routine
             log.warning("focus %s failed: %s", agent.target, exc)
             return
-        if self.config.activate_app:
+        now = time.monotonic()
+        if self.config.activate_app and now - self._activated_at >= ACTIVATE_APP_SECONDS:
             # A physical press means "show me": raise agterm over the frontmost app too.
+            # Once per burst is enough -- after the first raise agterm is already front.
+            self._activated_at = now
             await self.client.activate_app()
 
     async def send_named_key(self, action: str) -> None:
         """Send esc / enter / ctrl+c to the selected agent."""
-        if self.selected is None:
-            return
-        agent = self.slots.agent_at(self.selected)
+        agent = self._selected_agent()
         if agent is None:
             return
         key = KEY_NAMES.get(action)
@@ -106,16 +137,17 @@ class ActionRouter:
             log.warning("next-attention jump failed: %s", exc)
             return
         if session_id is not None:
-            slot = self.slots.slot_of(session_id)
-            self.selected = slot
-            if slot is not None:
-                log.info("next-attention -> slot %s (%s)", slot, session_id)
+            if self.slots.agent(session_id) is not None:
+                # A keyless session (overflow) is still a valid selection: agterm has
+                # switched to it, and the bottom row should act on what the user sees.
+                self.selected = session_id
+                log.info("next-attention -> %s (slot %s)", session_id, self.selected_slot)
             else:
-                # The session is real but holds no key (overflow, or a stale cache).
-                # agterm has ALREADY switched to it, so keeping the old selection would
-                # aim a subsequent approve at a session the user is no longer looking
-                # at. No key means no selection; approve then does nothing.
-                log.info("next-attention -> %s (no key slot; selection cleared)", session_id)
+                # agterm landed on a session the cache does not know (stale, mid-resync).
+                # It has ALREADY switched there, so keeping the old selection would aim
+                # a subsequent approve at a session the user is no longer looking at.
+                self.selected = None
+                log.info("next-attention -> %s (unknown session; selection cleared)", session_id)
         if self.config.activate_app:
             await self.client.activate_app()
 
@@ -126,8 +158,7 @@ class ActionRouter:
             await self.next_attention()
             return
 
-        # `self.selected or -1` would be wrong here: slot 0 is falsy.
-        target = self.slots.agent_at(self.selected) if self.selected is not None else None
+        target = self._selected_agent()
         if action in ACTIONS_NEED_TARGET and target is None:
             log.info("action %r ignored: no agent selected", action)
             return
@@ -181,8 +212,7 @@ class ActionRouter:
         if action == "none":
             return
         if action == "focus_selected":
-            if self.selected is not None:
-                await self.focus_slot(self.selected)
+            await self.focus_selected()
             return
         if action in self.config.require_long_press_for and held_ms < self.config.long_press_ms:
             log.info("ignored short press for guarded action %r (%.0fms)", action, held_ms)
@@ -190,22 +220,27 @@ class ActionRouter:
         await self.send_named_key(action)
 
     def _schedule_focus(self) -> None:
-        """Focus the selection once the knob settles.
+        """Keep agterm following the knob without strobing it.
 
-        A spin emits a detent every few milliseconds; focusing on each one would hammer
-        Herdr and strobe the UI through every agent on the way past. Only the resting
-        position is worth focusing, so each detent cancels the previous pending focus.
+        Focusing every detent would hammer agterm through every session on the way
+        past; focusing only the resting position (the old behaviour) froze the UI
+        mid-spin and then jumped, which read as the loop being broken. So the next
+        focus fires as soon as the throttle window from the LAST fired focus has
+        passed: a slow turn follows detent by detent with no lag, a fast spin samples
+        the loop in order at the throttle rate, and each detent cancels the pending
+        task so the resting position always gets the final say.
         """
         if self._focus_task is not None:
             self._focus_task.cancel()
+        delay = max(0.0, self._focus_fired + FOCUS_COALESCE_SECONDS - time.monotonic())
 
         async def settle() -> None:
             try:
-                await asyncio.sleep(FOCUS_COALESCE_SECONDS)
+                await asyncio.sleep(delay)
             except asyncio.CancelledError:
                 return
-            if self.selected is not None:
-                await self.focus_slot(self.selected)
+            self._focus_fired = time.monotonic()
+            await self.focus_selected()
 
         self._focus_task = asyncio.get_running_loop().create_task(settle())
 
