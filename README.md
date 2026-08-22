@@ -406,9 +406,10 @@ safety:
   require_long_press_for: [approve, enter, interrupt]
 ```
 
-A session keeps its key while it lives and a state change never reshuffles the pad; identity
-is the agterm session UUID, so the volatile sidebar name (an OSC title Claude Code rewrites
-constantly) can never move or steal a key.
+Identity is stable, keys are not: a session is always tracked by its agterm UUID (the
+volatile sidebar name — an OSC title Claude Code rewrites constantly — can never move or
+steal a key), but in compact mode its key follows the sidebar position, so closes,
+insertions and reorders remap keys. Only a status change is guaranteed to move nothing.
 
 State reaches the LEDs through a 250 ms `events.read` cursor poll, so a key changes within a
 beat of the agent changing. A periodic full resync (`agterm.poll_seconds`, default 5 s) runs

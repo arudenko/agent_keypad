@@ -26,8 +26,14 @@ if [[ "$size" -ne "$EXPECTED_BYTES" ]]; then
     read -r answer
     [[ "$answer" == "yes" ]] || exit 1
 fi
-if [[ -e "$INPUT.sha256" ]] && \
-        ! (cd "$(dirname "$INPUT")" && shasum -a 256 -c "$(basename "$INPUT").sha256" >/dev/null 2>&1); then
+# The .sha256 is part of the verified backup pair; a missing one must not silently
+# bypass verification and flash any same-sized file.
+if [[ ! -e "$INPUT.sha256" ]]; then
+    echo "WARNING: $INPUT.sha256 is missing -- this backup cannot be verified."
+    printf "Restore an UNVERIFIED image anyway? (yes/no) "
+    read -r answer
+    [[ "$answer" == "yes" ]] || exit 1
+elif ! (cd "$(dirname "$INPUT")" && shasum -a 256 -c "$(basename "$INPUT").sha256" >/dev/null 2>&1); then
     echo "WARNING: $INPUT does not match its recorded SHA256."
     printf "Restore anyway? (yes/no) "
     read -r answer

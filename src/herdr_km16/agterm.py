@@ -198,6 +198,20 @@ class AgtermEventStream:
         self._after: int | None = None
         self._closed = False
 
+    async def baseline(self) -> None:
+        """Establish the cursor at the current tail without consuming events.
+
+        Call this BEFORE the first `tree` read: anything that happens while the tree is
+        being fetched then lands after the cursor and is still delivered. Baselining
+        after the tree read instead leaves a window in which a transient status change
+        or topology event disappears unseen. Idempotent once a cursor exists.
+        """
+        if self._run is not None:
+            return
+        events = (await self.client.call("events.read", {"limit": 1}))["events"]
+        self._run = events["run"]
+        self._after = events["next"]
+
     async def __aiter__(self) -> AsyncIterator[dict[str, Any]]:
         while not self._closed:
             args: dict[str, Any] = {"limit": self.limit}

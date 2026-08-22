@@ -28,6 +28,9 @@ def test_malformed_events_do_not_kill_the_loop(malformed, monkeypatch, caplog):
         def __init__(self, *a, **kw):
             pass
 
+        async def baseline(self):
+            pass
+
         async def __aiter__(self):
             yield malformed
 
@@ -109,6 +112,9 @@ def test_malformed_status_event_neither_idles_the_agent_nor_restarts(monkeypatch
 
     class OneShotStream:
         def __init__(self, *a, **kw):
+            pass
+
+        async def baseline(self):
             pass
 
         async def __aiter__(self):

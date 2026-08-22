@@ -293,6 +293,9 @@ def test_topology_events_trigger_a_tree_resync(monkeypatch):
         def __init__(self, *args, **kwargs):
             pass
 
+        async def baseline(self):
+            pass
+
         async def __aiter__(self):
             for event in FOUR_KINDS[1:]:  # created, closed, tree.changed
                 yield event
@@ -322,6 +325,9 @@ def test_status_event_repaints_without_a_resync(monkeypatch):
 
     class OneShotStream:
         def __init__(self, *args, **kwargs):
+            pass
+
+        async def baseline(self):
             pass
 
         async def __aiter__(self):
@@ -366,3 +372,60 @@ def test_selection_follows_the_agent_across_compaction(monkeypatch):
 
     asyncio.run(serve([three[0]]))  # CCCC itself closes
     assert controller.router.selected is None, "a dead selection must clear, not dangle"
+
+
+def test_baseline_sets_the_cursor_without_consuming_events():
+    async def run():
+        async with FakeAgterm() as server:
+            server.responses["events.read"] = [
+                events_page([], 5),
+                events_page([FOUR_KINDS[0]], 6),
+            ]
+            stream = a.AgtermEventStream(server.path, poll_seconds=0.001)
+            await stream.baseline()
+            await stream.baseline()  # idempotent: must not re-baseline past events
+            received = []
+            async for event in stream:
+                received.append(event)
+                stream.close()
+            return received, server.requests
+
+    received, requests = asyncio.run(run())
+    assert requests[0] == {"cmd": "events.read", "args": {"limit": 1}}
+    assert requests[1]["args"]["after"] == "5", "iteration resumes from the baseline"
+    assert len(requests) == 2, "the second baseline() must not hit the wire"
+    assert received[0]["kind"] == "status", \
+        "an event that fired after the baseline is delivered, not skipped"
+
+
+def test_loop_baselines_the_cursor_before_reading_the_tree(monkeypatch):
+    """Reconciling first leaves a window where an event that fires during the tree read
+    is permanently skipped; the cursor must exist before the tree snapshot is taken."""
+    from herdr_km16 import main as m
+    from herdr_km16.config import Config
+
+    controller = m.Controller(Config())
+    order = []
+
+    async def fake_reconcile():
+        order.append("tree")
+        return []
+
+    class RecordingStream:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def baseline(self):
+            order.append("baseline")
+
+        async def __aiter__(self):
+            raise asyncio.CancelledError
+            yield  # pragma: no cover
+
+    monkeypatch.setattr(controller, "_reconcile", fake_reconcile)
+    monkeypatch.setattr(m, "AgtermEventStream", RecordingStream)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(controller.agterm_loop())
+
+    assert order == ["baseline", "tree"]

@@ -97,9 +97,13 @@ class Controller:
     async def agterm_loop(self) -> None:
         while True:
             try:
+                # Cursor first, tree second: an event that fires during the tree read
+                # then lands after the cursor and is still delivered, instead of being
+                # skipped until the periodic backstop (or forever, if it was transient).
+                stream = AgtermEventStream(poll_seconds=self.config.event_poll_seconds)
+                await stream.baseline()
                 sessions = await self._reconcile()
                 log.info("tracking %d session(s)", len(sessions))
-                stream = AgtermEventStream(poll_seconds=self.config.event_poll_seconds)
                 async for event in stream:
                     kind = event.get("kind")
                     if kind == "status":

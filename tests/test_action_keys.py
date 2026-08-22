@@ -239,7 +239,8 @@ def test_action_keys_do_not_pulse_even_next_to_a_blocked_agent():
     _, _, slots = make_router()
     cfg = Config(action_keys=dict(ACTIONS))
     renderer = LedRenderer(action_keys=cfg.action_keys, action_colors=cfg.action_colors)
-    # 0.25 is a quarter of blocked's 0.5s cycle; 0.5 would alias to a full cycle.
+    # 0.25 is a quarter of blocked's 1s cycle (clearly mid-fade); avoid multiples of
+    # the period, which alias to the crest.
     a = renderer.key_frame(slots, selected=0, phase=0.0)
     b = renderer.key_frame(slots, selected=0, phase=0.25)
     assert a[12:] == b[12:], "action keys are controls, not status; they must stay steady"

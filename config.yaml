@@ -40,8 +40,9 @@ mapping:
   # down, and reordering sessions in the sidebar remaps the keys to match.
   # false = fully sticky keys (nothing ever moves; a closed session leaves its key dark).
   compact: true
-  # Pin an agent to a key by agterm session UUID. Unpinned keys are allocated
-  # lowest-free-first and stay put for the life of the agent.
+  # Pin a session to a key by agterm session UUID. A pinned key never moves; with
+  # compact on, unpinned keys follow the sidebar order (only status changes are
+  # guaranteed to move nothing).
   static: {}
     # 0: "EF084D05-83BB-44BD-AE3B-DD7BD9E8C27D"
 
