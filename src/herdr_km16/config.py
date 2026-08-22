@@ -30,6 +30,8 @@ class Config:
     session: str | None = None
     reconnect_seconds: float = 1.0
     poll_seconds: float = 1.5
+    # Sleep between events.read polls when the queue is idle (agtermctl uses 250ms).
+    event_poll_seconds: float = 0.25
     watchdog_ms: int = 2000
     led_reassert_seconds: float = 5.0
     brightness: float = 0.35
@@ -79,12 +81,16 @@ def load_config(path: str | Path | None = None) -> Config:
 
     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
 
-    herdr = raw.get("herdr") or {}
-    cfg.session = herdr.get("session")
-    cfg.reconnect_seconds = float(herdr.get("reconnect_seconds", cfg.reconnect_seconds))
-    cfg.poll_seconds = float(herdr.get("poll_seconds", cfg.poll_seconds))
+    # `herdr:` is accepted as a legacy spelling so pre-port configs keep loading.
+    agterm = raw.get("agterm") or raw.get("herdr") or {}
+    cfg.session = agterm.get("session")
+    cfg.reconnect_seconds = float(agterm.get("reconnect_seconds", cfg.reconnect_seconds))
+    cfg.poll_seconds = float(agterm.get("poll_seconds", cfg.poll_seconds))
+    cfg.event_poll_seconds = float(agterm.get("event_poll_seconds", cfg.event_poll_seconds))
     if cfg.poll_seconds <= 0:
-        raise ValueError(f"herdr.poll_seconds must be positive, got {cfg.poll_seconds}")
+        raise ValueError(f"agterm.poll_seconds must be positive, got {cfg.poll_seconds}")
+    if cfg.event_poll_seconds <= 0:
+        raise ValueError(f"agterm.event_poll_seconds must be positive, got {cfg.event_poll_seconds}")
 
     km16 = raw.get("km16") or {}
     cfg.watchdog_ms = int(km16.get("watchdog_ms", cfg.watchdog_ms))

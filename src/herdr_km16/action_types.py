@@ -13,14 +13,15 @@ VALID_ACTION_KEYS = frozenset({"approve", "reject", "interrupt", "next_attention
 # Actions that do nothing without a selected agent, so their keys dim when there is none.
 ACTIONS_NEED_TARGET = frozenset({"approve", "reject", "interrupt"})
 
-# Herdr's canonical key names. `approve`/`reject` are the action-key spellings of the same
-# keystrokes the encoders send, kept distinct so they can be gated separately.
+# Literal keystrokes for agterm's `session.type` (a newline is a Return press).
+# `approve`/`reject` are the action-key spellings of the same keystrokes the encoders
+# send, kept distinct so they can be gated separately.
 KEY_NAMES = {
-    "escape": "esc",
-    "reject": "esc",
-    "enter": "enter",
-    "approve": "enter",
-    "interrupt": "ctrl+c",
+    "escape": "\x1b",
+    "reject": "\x1b",
+    "enter": "\n",
+    "approve": "\n",
+    "interrupt": "\x03",
 }
 
 DEFAULT_ACTION_COLORS = {

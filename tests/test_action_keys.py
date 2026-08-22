@@ -19,17 +19,23 @@ ACTIONS = {12: "approve", 13: "reject", 14: "interrupt", 15: "next_attention"}
 
 
 class FakeClient:
-    """Records calls instead of touching Herdr."""
+    """Records calls instead of touching agterm."""
 
     def __init__(self):
         self.sent: list[tuple[str, list[str]]] = []
         self.focused: list[str] = []
+        self.jumped: int = 0
+        self.jump_result: str | None = "w1:p1"
 
     async def send_keys(self, target, keys):
         self.sent.append((target, keys))
 
     async def focus_agent(self, target):
         self.focused.append(target)
+
+    async def next_attention(self):
+        self.jumped += 1
+        return self.jump_result
 
 
 def make_router(action_keys=None, **overrides):
@@ -98,7 +104,7 @@ def test_approve_works_on_a_long_press():
     router, client, _ = make_router()
     router.selected = 0
     press(router, 12, held_ms=800)
-    assert client.sent == [("w1:p1", ["enter"])]
+    assert client.sent == [("w1:p1", ["\n"])], "approve is a literal Return press"
 
 
 def test_interrupt_needs_a_long_press():
@@ -107,14 +113,14 @@ def test_interrupt_needs_a_long_press():
     press(router, 14, held_ms=100)
     assert client.sent == []
     press(router, 14, held_ms=800)
-    assert client.sent == [("w1:p1", ["ctrl+c"])]
+    assert client.sent == [("w1:p1", ["\x03"])], "interrupt is a literal Ctrl-C"
 
 
 def test_reject_is_instant():
     router, client, _ = make_router()
     router.selected = 0
     press(router, 13, held_ms=40)
-    assert client.sent == [("w1:p1", ["esc"])]
+    assert client.sent == [("w1:p1", ["\x1b"])], "reject is a literal Esc"
 
 
 def test_actions_do_nothing_without_a_selection():
@@ -130,7 +136,7 @@ def test_action_keys_never_focus_an_agent():
     router.selected = 0
     for key in ACTIONS:
         press(router, key, held_ms=800)
-    assert client.focused == [], "action keys must not change Herdr focus"
+    assert client.focused == [], "action keys must not call session.select"
 
 
 def test_agent_key_press_still_only_focuses():
@@ -143,17 +149,29 @@ def test_agent_key_press_still_only_focuses():
 # --- next_attention ---------------------------------------------------------
 
 
-def test_next_attention_selects_without_sending_anything():
+def test_next_attention_jumps_server_side_without_sending_anything():
+    """agterm's session.go picks the target; the pad only follows the answer."""
     router, client, _ = make_router()
     press(router, 15, held_ms=40)
-    assert router.selected == 0, "blocked agent ranks first"
+    assert client.jumped == 1, "the jump must be delegated to session.go"
+    assert router.selected == 0, "selection follows the session agterm chose"
     assert client.sent == [] and client.focused == []
 
 
 def test_next_attention_is_not_gated_by_long_press():
-    router, _, _ = make_router()
+    router, client, _ = make_router()
     press(router, 15, held_ms=10)
-    assert router.selected is not None
+    assert client.jumped == 1 and router.selected is not None
+
+
+def test_next_attention_with_no_slot_for_the_answer_keeps_the_selection():
+    """agterm can land on a session the pad has no key for (overflow); don't corrupt state."""
+    router, client, _ = make_router()
+    client.jump_result = "not-a-known-session"
+    router.selected = 1
+    press(router, 15, held_ms=40)
+    assert router.selected == 1
+    assert client.sent == []
 
 
 # --- rendering --------------------------------------------------------------
@@ -203,7 +221,7 @@ def test_slot_zero_can_be_actioned():
     router, client, _ = make_router()
     router.selected = 0
     press(router, 13, held_ms=40)
-    assert client.sent == [("w1:p1", ["esc"])]
+    assert client.sent == [("w1:p1", ["\x1b"])]
 
 
 def test_bounced_press_is_swallowed():
@@ -228,7 +246,7 @@ def test_guard_uses_the_configured_threshold_not_a_hardcoded_one():
     assert client.sent == [], "290ms must not clear a 300ms guard"
 
     press(router, 12, held_ms=310)
-    assert client.sent == [("w1:p1", ["enter"])], "310ms should clear a 300ms guard"
+    assert client.sent == [("w1:p1", ["\n"])], "310ms should clear a 300ms guard"
 
 
 def test_threshold_is_honoured_when_reconfigured():

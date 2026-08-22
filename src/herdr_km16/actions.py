@@ -1,4 +1,4 @@
-"""Physical input -> Herdr operations.
+"""Physical input -> agterm operations.
 
 Safety model (see CLAUDE.md §Safety rules):
 
@@ -17,8 +17,8 @@ import time
 from dataclasses import dataclass, field
 
 from .action_types import ACTIONS_NEED_TARGET, KEY_NAMES
+from .agterm import AgtermClient, AgtermError
 from .config import Config
-from .herdr import HerdrClient, HerdrError
 from .km16 import KEY_COUNT, KEY_LEFT_ENCODER, KEY_MAIN_ENCODER, KEY_RIGHT_ENCODER
 from .mapping import SlotMap
 
@@ -37,7 +37,7 @@ BRIGHTNESS_MAX = 1.0
 @dataclass
 class ActionRouter:
     config: Config
-    client: HerdrClient
+    client: AgtermClient
     slots: SlotMap
     renderer: object | None = None
     selected: int | None = None
@@ -65,7 +65,7 @@ class ActionRouter:
         agent = self.slots.agent_at(self.selected)
         log.info("select slot %s (%s, %s)", self.selected, agent.target if agent else "?", agent.status if agent else "?")
 
-    # --- herdr operations -------------------------------------------------
+    # --- agterm operations ------------------------------------------------
 
     async def focus_slot(self, slot: int) -> None:
         agent = self.slots.agent_at(slot)
@@ -75,7 +75,7 @@ class ActionRouter:
         log.info("focus slot %s -> %s (%s)", slot, agent.target, agent.status)
         try:
             await self.client.focus_agent(agent.target)
-        except HerdrError as exc:
+        except AgtermError as exc:
             log.warning("focus %s failed: %s", agent.target, exc)
 
     async def send_named_key(self, action: str) -> None:
@@ -91,14 +91,30 @@ class ActionRouter:
         log.info("send %r to %s (%s)", key, agent.target, agent.status)
         try:
             await self.client.send_keys(agent.target, [key])
-        except HerdrError as exc:
-            log.warning("send_keys %s to %s failed: %s", key, agent.target, exc)
+        except AgtermError as exc:
+            log.warning("send_keys %r to %s failed: %s", key, agent.target, exc)
+
+    async def next_attention(self) -> None:
+        """Server-side jump to the next blocked/completed session. Sends no keystrokes."""
+        try:
+            session_id = await self.client.next_attention()
+        except AgtermError as exc:
+            log.warning("next-attention jump failed: %s", exc)
+            return
+        if session_id is not None:
+            slot = self.slots.slot_of(session_id)
+            if slot is not None:
+                self.selected = slot
+                log.info("next-attention -> slot %s (%s)", slot, session_id)
+            else:
+                # The session is real but holds no key (overflow, or a stale cache).
+                log.info("next-attention -> %s (no key slot)", session_id)
 
     async def run_action(self, action: str, held_ms: float) -> None:
         """Run a bottom-row action key against the selected agent."""
         if action == "next_attention":
-            # Pure navigation: moves the selection, sends nothing to any agent.
-            self.cycle("cycle_attention_agents", 1)
+            # Navigation only: agterm moves its own selection; nothing is typed anywhere.
+            await self.next_attention()
             return
 
         # `self.selected or -1` would be wrong here: slot 0 is falsy.
