@@ -34,7 +34,9 @@ from .mapping import Agent, SlotMap
 
 log = logging.getLogger("herdr_km16")
 
-ANIMATION_HZ = 8
+# Fast enough that the 0.5s blocked flash renders its full dark-to-lit sweep smoothly
+# (15 frames per cycle) and reliably hits the fully-dark trough.
+ANIMATION_HZ = 30
 
 
 def _agent_from_record(record: dict) -> Agent:

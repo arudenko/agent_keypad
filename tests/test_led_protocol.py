@@ -92,3 +92,16 @@ def test_parse_event(data, expected):
 def test_parse_event_ignores_unknown_and_empty():
     assert km16.parse_event([]) is None
     assert km16.parse_event([0x7F, 0, 0]) is None
+
+
+def test_blocked_flashes_fully_off_at_the_trough():
+    """The attention flash must touch complete darkness (0x000000) mid-cycle, on a
+    0.5-second period -- a shallower or slower pulse was too easy to miss."""
+    from herdr_km16.leds import DEFAULT_PULSE_PERIOD, PULSE_DEPTH, PULSE_PERIOD, pulse_factor
+
+    assert PULSE_DEPTH["blocked"] == 1.0
+    assert PULSE_PERIOD["blocked"] == 0.5
+    assert pulse_factor(0.25, 1.0, 0.5) == pytest.approx(0.0), "trough = fully off"
+    assert pulse_factor(0.5, 1.0, 0.5) == pytest.approx(1.0), "one full cycle in 0.5s"
+    # `working` keeps its gentle breathe: never anywhere near dark.
+    assert pulse_factor(0.5, PULSE_DEPTH["working"], DEFAULT_PULSE_PERIOD) == pytest.approx(0.8)

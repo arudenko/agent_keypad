@@ -148,8 +148,9 @@ Every colour below is a default in [`config.yaml`](config.yaml) and can be chang
 
 Two of them move, so urgency reads from the corner of your eye:
 
-- **`blocked` pulses strongly** (65% depth) — this is the one that wants you.
-- **`working` breathes gently** (20% depth).
+- **`blocked` flashes hard** (100% depth, 0.5 s cycle — completely dark to lit twice a
+  second) — this is the one that wants you.
+- **`working` breathes gently** (20% depth, 1 s cycle).
 - Everything else is steady, and the pad sends no HID traffic at all while nothing pulses.
 
 The whole pad runs at `brightness` (default `0.35`) so it is not glaring. The **currently

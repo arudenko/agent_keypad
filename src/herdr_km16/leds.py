@@ -20,8 +20,13 @@ DEFAULT_COLORS = {
     "empty": 0x000000,
 }
 
-# States that pulse, and how strongly (0 = steady).
-PULSE_DEPTH = {"blocked": 0.65, "working": 0.20}
+# States that pulse: depth (0 = steady, 1 = fully off at the trough) and cycle period in
+# seconds. `blocked` is the state that wants the user, so it flashes hard and fast --
+# completely dark to lit twice a second reads from across the room; the subtler 65%/1s
+# pulse it shipped with was easy to miss.
+PULSE_DEPTH = {"blocked": 1.0, "working": 0.20}
+PULSE_PERIOD = {"blocked": 0.5}
+DEFAULT_PULSE_PERIOD = 1.0
 
 
 def parse_color(value: int | str) -> int:
@@ -39,11 +44,12 @@ def scale(color: int, factor: float) -> int:
     return (r << 16) | (g << 8) | b
 
 
-def pulse_factor(phase: float, depth: float) -> float:
-    """Smooth 0..1 triangle-ish wave. `phase` is a free-running time in seconds."""
+def pulse_factor(phase: float, depth: float, period: float = DEFAULT_PULSE_PERIOD) -> float:
+    """Smooth 0..1 wave. `phase` is a free-running time in seconds; `period` is one full
+    bright-dark-bright cycle. Depth 1.0 touches complete darkness at the trough."""
     if depth <= 0:
         return 1.0
-    return 1.0 - depth * (0.5 - 0.5 * math.cos(2 * math.pi * phase))
+    return 1.0 - depth * (0.5 - 0.5 * math.cos(2 * math.pi * phase / period))
 
 
 class LedRenderer:
@@ -94,7 +100,11 @@ class LedRenderer:
             base = self.color_for(agent.status)
             factor = self.brightness
             if self.pulse:
-                factor *= pulse_factor(phase, PULSE_DEPTH.get(agent.status, 0.0))
+                factor *= pulse_factor(
+                    phase,
+                    PULSE_DEPTH.get(agent.status, 0.0),
+                    PULSE_PERIOD.get(agent.status, DEFAULT_PULSE_PERIOD),
+                )
             if slot == selected:
                 # Brighten the selection; never replace the semantic colour.
                 factor = min(1.0, factor * self.selected_boost)
@@ -111,7 +121,11 @@ class LedRenderer:
             if status in statuses:
                 factor = self.brightness
                 if self.pulse:
-                    factor *= pulse_factor(phase, PULSE_DEPTH.get(status, 0.0))
+                    factor *= pulse_factor(
+                        phase,
+                        PULSE_DEPTH.get(status, 0.0),
+                        PULSE_PERIOD.get(status, DEFAULT_PULSE_PERIOD),
+                    )
                 return [scale(self.color_for(status), factor)] * size
         return [scale(self.colors["idle"], self.brightness)] * size
 
