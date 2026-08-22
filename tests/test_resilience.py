@@ -130,3 +130,28 @@ def test_malformed_status_event_neither_idles_the_agent_nor_restarts(monkeypatch
 
     assert controller.slots.agent_at(0).status == "blocked", "must not be read as idle"
     assert calls["n"] == 1, "malformed events must not trigger resyncs either"
+
+
+def test_backstop_resync_survives_a_malformed_tree(monkeypatch, caplog):
+    """This task is gathered with the rest; an escaping KeyError would end the daemon."""
+    controller = m.Controller(Config())
+    calls = {"n": 0}
+
+    async def bad_then_stop():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise KeyError("tree")
+        raise asyncio.CancelledError
+
+    async def instant_sleep(_):
+        pass
+
+    monkeypatch.setattr(controller, "_reconcile", bad_then_stop)
+    monkeypatch.setattr(m.asyncio, "sleep", instant_sleep)
+
+    with caplog.at_level(logging.DEBUG):
+        with pytest.raises(asyncio.CancelledError):
+            asyncio.run(controller.reconcile_loop())
+
+    assert calls["n"] == 2, "the loop must survive the malformed response and keep polling"
+    assert any("malformed" in r.message for r in caplog.records)

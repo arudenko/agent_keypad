@@ -150,8 +150,17 @@ class Controller:
         """
         while True:
             await asyncio.sleep(self.config.poll_seconds)
-            with contextlib.suppress(AgtermError, OSError):
+            try:
                 await self._reconcile()
+            except asyncio.CancelledError:
+                raise
+            except (AgtermError, OSError):
+                pass  # ordinary outage; the event loop already logs it
+            except Exception as exc:
+                # A malformed tree (KeyError/TypeError/bad JSON) must not escape: this
+                # task is gathered with the rest, and one uncaught exception here would
+                # take the whole daemon down.
+                log.warning("backstop resync failed on a malformed response: %s", exc)
 
     # --- device -----------------------------------------------------------
 

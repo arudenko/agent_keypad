@@ -46,9 +46,14 @@ mkdir -p "$(dirname "$OUTPUT")"
 
 if [[ -e "$OUTPUT" ]]; then
     stamp="$(date +%Y%m%d-%H%M%S)"
-    echo "Existing backup found; preserving it as $OUTPUT.$stamp.bak"
-    mv "$OUTPUT" "$OUTPUT.$stamp.bak"
-    [[ -e "$OUTPUT.sha256" ]] && mv "$OUTPUT.sha256" "$OUTPUT.sha256.$stamp.bak"
+    archived="$OUTPUT.$stamp.bak"
+    echo "Existing backup found; preserving it as $archived"
+    mv "$OUTPUT" "$archived"
+    rm -f "$OUTPUT.sha256"
+    # Regenerate the checksum under the archived name so the preserved pair stays
+    # independently verifiable and restorable (restore expects <image>.sha256 whose
+    # contents name the image file itself).
+    (cd "$(dirname "$archived")" && shasum -a 256 "$(basename "$archived")" > "$(basename "$archived").sha256")
 fi
 
 echo "== Reading stock firmware to $OUTPUT =="
