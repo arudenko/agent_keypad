@@ -86,10 +86,12 @@ Claude Code fires its `Stop` hook whenever a turn ends — including when the tu
 shows a waiting agent as green/idle. `scripts/agterm-bgwait-hook.sh` fixes that with
 per-subagent marker files: `SubagentStart`/`SubagentStop` hooks maintain the markers and
 the `Stop` hook chooses between "still waiting" (`active --blink`, purple-tinted glyph)
-and a real `completed`. Backgrounded Bash commands are deliberately not tracked — their
-completion re-invokes the agent, whose normal activity hooks recover the status. Wire it
-in `~/.claude/settings.json` per the header comment; stale markers expire after 4 hours
-and are cleared on session start.
+and a real `completed`. Backgrounded Bash commands are tracked too — the `PostToolUse`
+wiring's `posttool` mode records each background launch (marker holds the task's
+output-file path) and `turn-end` reaps a marker once that file carries the harness's
+`[exited with code N]` completion line. Wire all five events in `~/.claude/settings.json`
+per the header comment; stale markers expire after 4 hours and are cleared on session
+start.
 
 ### Input Monitoring permission
 

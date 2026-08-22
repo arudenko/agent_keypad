@@ -107,15 +107,24 @@ case "${1:-}" in
             # unrelated subagent is still running.
             rm -f "$MARK_DIR/$agent_id" 2>/dev/null || true
         else
-            # Only a genuinely unidentifiable subagent drains one marker blind.
-            oldest="$(find "$MARK_DIR" -type f 2>/dev/null | head -1)"
+            # Only a genuinely unidentifiable subagent drains one marker blind -- and
+            # only a SUBAGENT marker: bash-* markers belong to background shell tasks
+            # with their own reaper, and eating one would flip a still-working session
+            # to completed at the next turn-end.
+            oldest="$(find "$MARK_DIR" -type f ! -name 'bash-*' 2>/dev/null | head -1)"
             [ -n "$oldest" ] && rm -f "$oldest" 2>/dev/null || true
         fi
         ;;
     posttool)
         payload="$(cat 2>/dev/null || true)"
-        # Debug tap: `mkdir /tmp/bgwait-debug` to capture raw payloads; rmdir to stop.
-        [ -d /tmp/bgwait-debug ] && printf '%s' "$payload" > "/tmp/bgwait-debug/$(date +%s)-$$.json" 2>/dev/null
+        # Debug tap, opt-in: `mkdir -m 700 ~/.cache/agterm-keypad/bgwait-debug` to
+        # capture raw payloads (which include command output, so they are sensitive);
+        # remove the directory to stop. Private location and 0600 files -- never /tmp,
+        # where another local user could pre-create the directory and read the trace.
+        debug_dir="$HOME/.cache/agterm-keypad/bgwait-debug"
+        if [ -d "$debug_dir" ] && [ -O "$debug_dir" ]; then
+            (umask 077; printf '%s' "$payload" > "$debug_dir/$(date +%s)-$$.json" 2>/dev/null) || true
+        fi
         out="$(printf '%s' "$payload" | background_output_from_stdin)"
         [ -n "$out" ] || exit 0
         mkdir -p "$MARK_DIR" 2>/dev/null || exit 0
