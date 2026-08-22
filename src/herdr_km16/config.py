@@ -43,6 +43,7 @@ class Config:
     pulse: bool = True
     colors: dict[str, int] = field(default_factory=lambda: dict(DEFAULT_COLORS))
     preserve_slots: bool = True
+    compact: bool = False
     static: dict[int, str] = field(default_factory=dict)
     key_press: str = "focus_agent"
     main_encoder: EncoderConfig = field(
@@ -121,6 +122,7 @@ def load_config(path: str | Path | None = None) -> Config:
 
     mapping = raw.get("mapping") or {}
     cfg.preserve_slots = bool(mapping.get("preserve_slots", cfg.preserve_slots))
+    cfg.compact = bool(mapping.get("compact", cfg.compact))
     for slot, identity in (mapping.get("static") or {}).items():
         slot = int(slot)
         if not 0 <= slot < 16:

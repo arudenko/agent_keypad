@@ -107,3 +107,54 @@ def test_agent_at_rejects_out_of_range_slot():
     slots = SlotMap()
     assert slots.agent_at(99) is None
     assert slots.agent_at(-1) is None
+
+
+# --- compaction (mapping.compact: true, the shipped default) ----------------
+
+
+def compacting(**kw):
+    return SlotMap(compact=True, **kw)
+
+
+def test_compact_closes_the_gap_in_surviving_order():
+    slots = compacting()
+    slots.sync([agent("a"), agent("b"), agent("c"), agent("d")])
+    slots.sync([agent("a"), agent("c"), agent("d")])  # b closed
+    assert slots.slots[:4] == ["a", "c", "d", None], "survivors shift down, order kept"
+
+
+def test_compact_frees_the_trailing_key_and_it_is_dark():
+    from herdr_km16.leds import LedRenderer
+
+    slots = compacting()
+    slots.sync([agent("a", "working"), agent("b", "blocked"), agent("c", "done")])
+    slots.sync([agent("a", "working"), agent("c", "done")])
+    frame = LedRenderer(pulse=False).key_frame(slots)
+    assert frame[2:] == [0x000000] * 14, "every unassigned key must be unlit"
+
+
+def test_compact_newcomers_append_after_survivors():
+    slots = compacting()
+    slots.sync([agent("a"), agent("b"), agent("c")])
+    slots.sync([agent("a"), agent("c"), agent("new")])  # b closed, new arrived
+    assert slots.slots[:4] == ["a", "c", "new", None]
+
+
+def test_compact_never_touches_action_or_pinned_keys():
+    slots = compacting(static={1: "pinned"}, action_slots=frozenset({3}))
+    slots.sync([agent("a"), agent("pinned"), agent("b"), agent("c")])
+    assert slots.slots[:5] == ["a", "pinned", "b", None, "c"], "action key 3 is skipped"
+    slots.sync([agent("pinned"), agent("b"), agent("c")])  # a closed
+    assert slots.slots[:5] == ["b", "pinned", "c", None, None], \
+        "the pin holds its key and the action key stays out of allocation"
+    slots.sync([agent("b"), agent("c")])  # pinned closed: its key is held open, dark
+    assert slots.slots[:5] == ["b", None, "c", None, None]
+
+
+def test_compact_status_change_still_never_moves_anything():
+    slots = compacting()
+    slots.sync([agent("a", "idle"), agent("b", "blocked")])
+    before = slots.slots
+    slots.update_status("a", "blocked")
+    slots.sync([agent("a", "blocked"), agent("b", "blocked")])
+    assert slots.slots == before

@@ -337,3 +337,32 @@ def test_status_event_repaints_without_a_resync(monkeypatch):
     assert resyncs["n"] == 1, "a known session's status change needs no tree call"
     assert controller.slots.agent_at(0).status == "blocked"
     assert controller.dirty.is_set()
+
+
+def test_selection_follows_the_agent_across_compaction(monkeypatch):
+    """A close shifts keys down (mapping.compact); an approve right after must still hit
+    the agent the user selected, not whoever slid onto the old key number."""
+    from herdr_km16 import main as m
+    from herdr_km16.config import Config
+
+    controller = m.Controller(Config(compact=True))
+
+    async def serve(records):
+        async def fake_list_agents():
+            return records
+        monkeypatch.setattr(controller.client, "list_agents", fake_list_agents)
+        await controller._reconcile()
+
+    three = [
+        {"pane_id": s, "terminal_id": s, "agent_status": "working"}
+        for s in ("AAAA", "BBBB", "CCCC")
+    ]
+    asyncio.run(serve(three))
+    controller.router.selected = 2  # the user selects CCCC on key 2
+
+    asyncio.run(serve([three[0], three[2]]))  # BBBB closes; CCCC compacts down to key 1
+    assert controller.slots.slot_of("CCCC") == 1
+    assert controller.router.selected == 1, "selection follows the agent, not the key"
+
+    asyncio.run(serve([three[0]]))  # CCCC itself closes
+    assert controller.router.selected is None, "a dead selection must clear, not dangle"

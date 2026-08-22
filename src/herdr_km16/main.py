@@ -59,6 +59,7 @@ class Controller:
             static=config.static,
             preserve_slots=config.preserve_slots,
             action_slots=frozenset(config.action_keys),
+            compact=config.compact,
         )
         self.renderer = LedRenderer(
             colors=config.colors,
@@ -79,7 +80,15 @@ class Controller:
 
     async def _reconcile(self) -> list[str]:
         records = await self.client.list_agents()
+        # Compaction can move an agent to a different key; the selection must follow the
+        # AGENT, not the key number, or an approve after a close could hit a neighbour.
+        selected = (
+            self.slots.agent_at(self.router.selected)
+            if self.router.selected is not None else None
+        )
         self.slots.sync([_agent_from_record(r) for r in records])
+        if selected is not None:
+            self.router.selected = self.slots.slot_of(selected.identity)
         self.dirty.set()
         return [r["pane_id"] for r in records]
 
