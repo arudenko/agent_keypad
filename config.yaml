@@ -1,13 +1,18 @@
-# herdr-km16 controller configuration.
+# agterm-km16 controller configuration.
 # Everything the controller does should be changeable here, without editing source.
 
-herdr:
-  session: null            # null = default session (resolved via HERDR_SOCKET_PATH)
+agterm:
+  session: null            # unused on agterm; kept for config compatibility
   reconnect_seconds: 1
-  # Backstop resync. pane.agent_status_changed drives the LEDs, so this only has to catch
-  # anything the event stream misses (a dropped connection, a pane we have not resubscribed
-  # to yet). agent.list costs ~0.7 ms locally, so a short interval is still cheap.
+  # Backstop resync. The events.read cursor poll drives the LEDs, so this only has to
+  # catch anything it misses (a status set while the socket was down). A `tree` call is
+  # one cheap unix-socket round trip, so a short interval is still cheap.
   poll_seconds: 5
+  # Sleep between events.read polls when no events are queued (agtermctl uses 250ms).
+  event_poll_seconds: 0.25
+  # Also bring the agterm app to the macOS foreground when a pad key focuses a session
+  # or Next jumps -- the socket alone only moves agterm's internal selection.
+  activate_app: true
 
 km16:
   watchdog_ms: 2000        # 0 disables; firmware flashes the layer LED red if we stop pinging
@@ -23,7 +28,7 @@ km16:
 
 colors:
   working: "#0066ff"
-  blocked: "#ff0000"
+  blocked: "#ff0000"   # fades red (fast cycle): needs you now
   done: "#00ff44"
   idle: "#202020"
   unknown: "#ff9900"
@@ -31,11 +36,15 @@ colors:
 
 mapping:
   preserve_slots: true
-  # Pin an agent to a key by Herdr agent name. Unpinned keys are allocated
-  # lowest-free-first and stay put for the life of the agent.
+  # Mirror agterm's sidebar order, gap-free: closing a session shifts the ones below it
+  # down, and reordering sessions in the sidebar remaps the keys to match.
+  # false = fully sticky keys (nothing ever moves; a closed session leaves its key dark).
+  compact: true
+  # Pin a session to a key by agterm session UUID. A pinned key never moves; with
+  # compact on, unpinned keys follow the sidebar order (only status changes are
+  # guaranteed to move nothing).
   static: {}
-    # 0: reviewer
-    # 1: backend
+    # 0: "EF084D05-83BB-44BD-AE3B-DD7BD9E8C27D"
 
 # Bottom row = actions instead of agents. These keys act on the SELECTED agent (the one
 # you last pressed or cycled to, shown brighter on the pad). Removing entries here hands

@@ -2,16 +2,16 @@
 
 Structure:
 
-* one task owns the Herdr event stream and keeps the agent cache fresh
+* one task polls the agterm event cursor and keeps the session cache fresh
 * one task owns the KM16 (HID reads, watchdog pings)
 * one task renders LED frames
 
-Both connections are optional at any moment: the daemon starts with neither Herdr nor the
+Both connections are optional at any moment: the daemon starts with neither agterm nor the
 keypad present and reconnects rather than exiting.
 
-Because ``pane.agent_status_changed`` must be subscribed per pane and a subscribed connection
-cannot accept further requests, the event stream is torn down and reopened whenever the set of
-agent panes changes.
+agterm's events are a plain cursor poll, so unlike the Herdr original there is no
+subscription to tear down when sessions appear or vanish -- a topology event just triggers
+a ``tree`` resync and the same cursor keeps advancing.
 """
 
 from __future__ import annotations
@@ -26,27 +26,29 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from .actions import ActionRouter
+from .agterm import TOPOLOGY_KINDS, AgtermClient, AgtermError, AgtermEventStream, map_status
 from .config import Config, load_config
-from .herdr import HerdrClient, HerdrError, HerdrEventStream, event_kind
-from .km16 import CHAIN_KEYS, CHAIN_UNDERGLOW, KM16
+from .km16 import CHAIN_KEYS, CHAIN_LAYER, CHAIN_UNDERGLOW, KM16
 from .leds import LedRenderer
 from .mapping import Agent, SlotMap
 
 log = logging.getLogger("herdr_km16")
 
-ANIMATION_HZ = 8
-
-# Events that change which panes exist, so the subscription set must be rebuilt.
-TOPOLOGY_EVENTS = {"pane_created", "pane_closed", "pane_exited", "pane_agent_detected", "pane_moved"}
+# Fast enough that the 1s blocked fade renders its dark-to-lit sweep smoothly (30 frames
+# per cycle, 60 for working's 2s breathe) and reliably hits the fully-dark trough.
+ANIMATION_HZ = 30
 
 
 def _agent_from_record(record: dict) -> Agent:
+    # `name` stays unset on purpose: agterm's sidebar name is an OSC title that Claude
+    # Code rewrites constantly, and Agent.identity prefers the name -- populating it
+    # would reshuffle keys on every title change. The session UUID is the identity
+    # (terminal_id) and the command target (pane_id) both.
     return Agent(
         pane_id=record["pane_id"],
         status=record.get("agent_status", "unknown"),
-        name=record.get("name"),
         cwd=record.get("cwd"),
-        title=record.get("terminal_title_stripped"),
+        title=record.get("title"),
         terminal_id=record.get("terminal_id"),
     )
 
@@ -54,11 +56,12 @@ def _agent_from_record(record: dict) -> Agent:
 class Controller:
     def __init__(self, config: Config):
         self.config = config
-        self.client = HerdrClient()
+        self.client = AgtermClient()
         self.slots = SlotMap(
             static=config.static,
             preserve_slots=config.preserve_slots,
             action_slots=frozenset(config.action_keys),
+            compact=config.compact,
         )
         self.renderer = LedRenderer(
             colors=config.colors,
@@ -75,68 +78,89 @@ class Controller:
         self.dirty = asyncio.Event()
         self._input_queue: asyncio.Queue[dict] = asyncio.Queue()
 
-    # --- Herdr ------------------------------------------------------------
+    # --- agterm -----------------------------------------------------------
 
     async def _reconcile(self) -> list[str]:
         records = await self.client.list_agents()
+        # Compaction can move an agent to a different key; the selection must follow the
+        # AGENT, not the key number, or an approve after a close could hit a neighbour.
+        selected = (
+            self.slots.agent_at(self.router.selected)
+            if self.router.selected is not None else None
+        )
         self.slots.sync([_agent_from_record(r) for r in records])
+        if selected is not None:
+            self.router.selected = self.slots.slot_of(selected.identity)
         self.dirty.set()
         return [r["pane_id"] for r in records]
 
-    async def herdr_loop(self) -> None:
+    async def agterm_loop(self) -> None:
         while True:
             try:
-                panes = await self._reconcile()
-                log.info("tracking %d agent pane(s): %s", len(panes), ", ".join(panes) or "none")
-                stream = HerdrEventStream(panes)
+                # Cursor first, tree second: an event that fires during the tree read
+                # then lands after the cursor and is still delivered, instead of being
+                # skipped until the periodic backstop (or forever, if it was transient).
+                stream = AgtermEventStream(poll_seconds=self.config.event_poll_seconds)
+                await stream.baseline()
+                sessions = await self._reconcile()
+                log.info("tracking %d session(s)", len(sessions))
                 async for event in stream:
-                    kind = event_kind(event)
-                    data = event.get("data", {})
-                    if kind == "pane_agent_status_changed":
-                        slot = self.slots.update_status(data["pane_id"], data["agent_status"])
+                    kind = event.get("kind")
+                    if kind == "status":
+                        session = event.get("session")
+                        payload = event.get("payload")
+                        # Status events always carry an explicit status; a malformed one
+                        # must neither read as "went idle" nor abandon the event page.
+                        if session is None or not isinstance(payload, dict) or "status" not in payload:
+                            continue
+                        status = map_status(payload["status"])
+                        slot = self.slots.update_status(session, status)
                         if slot is not None:
-                            log.info("slot %s -> %s", slot, data["agent_status"])
+                            log.info("slot %s -> %s", slot, status)
                             self.dirty.set()
                             continue
-                        # Unknown pane: cache is stale, fall through and resync.
-                    elif kind not in TOPOLOGY_EVENTS:
-                        continue
-
-                    # Topology may have moved. Resync over a separate RPC connection (the
-                    # subscribed one cannot carry requests) and only rebuild the stream if
-                    # the pane set actually changed -- Herdr replays pane_agent_detected for
-                    # every existing pane right after subscribing, and treating those as
-                    # changes would resubscribe in a tight loop.
-                    current = await self._reconcile()
-                    if set(current) != set(panes):
-                        log.info("pane set changed; resubscribing")
-                        break
-            except (HerdrError, OSError, FileNotFoundError) as exc:
-                log.warning("herdr unavailable (%s); retrying in %ss", exc, self.config.reconnect_seconds)
+                        # Unknown session: cache is stale, resync. The cursor survives.
+                        await self._reconcile()
+                    elif kind in TOPOLOGY_KINDS:
+                        await self._reconcile()
+                    # `notify` and anything future: not ours.
+            except (AgtermError, OSError) as exc:
+                log.warning("agterm unavailable (%s); retrying in %ss", exc, self.config.reconnect_seconds)
                 if self.slots.live_agents():
                     self.slots.sync([])
+                    # The identity map is gone, so the numeric selection is meaningless --
+                    # after reconnect a DIFFERENT session could land on that key and an
+                    # approve would hit a session the user never selected.
+                    self.router.selected = None
                     self.dirty.set()
             except asyncio.CancelledError:
                 raise
             except Exception:
                 # Anything else -- a malformed event, an unexpected envelope shape, a
-                # missing field -- must not take the daemon down. Herdr's event shapes have
-                # already varied once (see herdr.event_kind), so assume they will again.
-                log.exception("unexpected error in the event loop; resubscribing")
+                # missing field -- must not take the daemon down.
+                log.exception("unexpected error in the event loop; restarting the stream")
             await asyncio.sleep(self.config.reconnect_seconds)
 
     async def reconcile_loop(self) -> None:
         """Backstop resync behind the event stream.
 
-        Events are the primary path (see herdr.event_kind for the naming trap that had them
-        silently dropped). This catches what events cannot: a dropped subscription, or a
-        pane that appeared before we resubscribed. agent.list is 0.69 ms median locally, so
-        the interval is cheap either way.
+        Events are the primary path. This catches what they cannot: a status set while the
+        daemon was between polls of a dead socket, or a tree read that raced a change. A
+        `tree` call is a single cheap unix-socket round trip, so the interval costs little.
         """
         while True:
             await asyncio.sleep(self.config.poll_seconds)
-            with contextlib.suppress(HerdrError, OSError):
+            try:
                 await self._reconcile()
+            except asyncio.CancelledError:
+                raise
+            except (AgtermError, OSError):
+                pass  # ordinary outage; the event loop already logs it
+            except Exception as exc:
+                # A malformed tree (KeyError/TypeError/bad JSON) must not escape: this
+                # task is gathered with the rest, and one uncaught exception here would
+                # take the whole daemon down.
+                log.warning("backstop resync failed on a malformed response: %s", exc)
 
     # --- device -----------------------------------------------------------
 
@@ -249,6 +273,7 @@ class Controller:
             try:
                 device.set_frame(CHAIN_KEYS, self.renderer.key_frame(self.slots, self.router.selected, phase))
                 device.set_frame(CHAIN_UNDERGLOW, self.renderer.underglow_frame(self.slots, phase))
+                device.set_frame(CHAIN_LAYER, self.renderer.layer_frame(self.slots, phase))
             except Exception as exc:
                 log.warning("LED write failed: %s", exc)
 
@@ -256,7 +281,7 @@ class Controller:
         tasks = [
             asyncio.create_task(coro)
             for coro in (
-                self.herdr_loop(),
+                self.agterm_loop(),
                 self.reconcile_loop(),
                 self.device_loop(),
                 self.led_reassert_loop(),
@@ -272,6 +297,7 @@ class Controller:
             if self.device is not None:
                 with contextlib.suppress(Exception):
                     self.device.set_frame(CHAIN_KEYS, [0] * 16, force=True)
+                    self.device.set_frame(CHAIN_LAYER, [0], force=True)
                     self.device.set_watchdog(0)
                     self.device.close()
 
@@ -293,8 +319,10 @@ def _resolve_config(explicit: Path | None) -> Path | None:
 
 
 def default_log_path() -> Path:
-    base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~/.local/state")
-    return Path(base) / "herdr-km16" / "herdr-km16.log"
+    logs = Path.home() / "Library" / "Logs"
+    if logs.is_dir():  # macOS; elsewhere fall back to the XDG state dir
+        return logs / "agterm-keypad" / "daemon.log"
+    return Path(os.path.expanduser("~/.local/state")) / "agterm-keypad" / "daemon.log"
 
 
 def setup_logging(verbose: bool, log_file: Path | None) -> Path | None:
@@ -324,7 +352,7 @@ def setup_logging(verbose: bool, log_file: Path | None) -> Path | None:
 
 
 def run() -> None:
-    parser = argparse.ArgumentParser(prog="herdr-km16", description="KM16 -> Herdr agent controller")
+    parser = argparse.ArgumentParser(prog="agterm-km16", description="KM16 -> agterm agent controller")
     parser.add_argument("-c", "--config", default=None, type=Path,
                         help="path to config.yaml (default: ./config.yaml, else the repo copy)")
     parser.add_argument("-v", "--verbose", action="store_true")

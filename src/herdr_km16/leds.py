@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 
 from .action_types import ACTIONS_NEED_TARGET
-from .km16 import CHAIN_SIZES, CHAIN_UNDERGLOW
+from .km16 import CHAIN_LAYER, CHAIN_SIZES, CHAIN_UNDERGLOW
 from .mapping import SlotMap
 
 # How far to dim an action key that currently has nothing to act on.
@@ -20,8 +20,23 @@ DEFAULT_COLORS = {
     "empty": 0x000000,
 }
 
-# States that pulse, and how strongly (0 = steady).
-PULSE_DEPTH = {"blocked": 0.65, "working": 0.20}
+# States that pulse: depth (0 = steady, 1 = fully dark at the trough) and cycle period in
+# seconds. Both live states fade smoothly from dark to lit and back; the PACE separates
+# them -- urgent red (blocked) cycles once a second, calm blue (working) breathes at half
+# that speed. The at-rest states (idle, done) hold steady.
+PULSE_DEPTH = {"blocked": 1.0, "working": 1.0}
+PULSE_PERIOD = {"blocked": 1.0, "working": 2.0}
+DEFAULT_PULSE_PERIOD = 1.0
+# Per-key phase offset so several animated keys breathe out of step instead of in
+# lockstep -- a pad of agents pulsing in unison reads as one machine, staggered reads as
+# many independent workers. Deliberately not a divisor of either period, so no two keys
+# ever align for long. Key 0 keeps offset zero. The underglow and the layer LED are
+# whole-pad summaries and stay on the shared clock.
+PHASE_STAGGER_SECONDS = 0.31
+# States that blink as a hard square wave (half cycle on, half cycle truly off) instead
+# of the smooth fade. Currently none -- the square variant stays available in
+# pulse_factor for anyone who prefers off/on to breathing.
+PULSE_SQUARE = frozenset()
 
 
 def parse_color(value: int | str) -> int:
@@ -39,11 +54,18 @@ def scale(color: int, factor: float) -> int:
     return (r << 16) | (g << 8) | b
 
 
-def pulse_factor(phase: float, depth: float) -> float:
-    """Smooth 0..1 triangle-ish wave. `phase` is a free-running time in seconds."""
+def pulse_factor(phase: float, depth: float, period: float = DEFAULT_PULSE_PERIOD,
+                 square: bool = False) -> float:
+    """0..1 wave. `phase` is a free-running time in seconds; `period` is one full cycle.
+
+    Cosine by default (smooth breathe). `square` holds full brightness for the first half
+    of the cycle and the dimmed level for the entire second half -- with depth 1.0 that is
+    hard on/off, not a dip."""
     if depth <= 0:
         return 1.0
-    return 1.0 - depth * (0.5 - 0.5 * math.cos(2 * math.pi * phase))
+    if square:
+        return 1.0 if (phase % period) < (period / 2) else 1.0 - depth
+    return 1.0 - depth * (0.5 - 0.5 * math.cos(2 * math.pi * phase / period))
 
 
 class LedRenderer:
@@ -94,7 +116,12 @@ class LedRenderer:
             base = self.color_for(agent.status)
             factor = self.brightness
             if self.pulse:
-                factor *= pulse_factor(phase, PULSE_DEPTH.get(agent.status, 0.0))
+                factor *= pulse_factor(
+                    phase + slot * PHASE_STAGGER_SECONDS,
+                    PULSE_DEPTH.get(agent.status, 0.0),
+                    PULSE_PERIOD.get(agent.status, DEFAULT_PULSE_PERIOD),
+                    square=agent.status in PULSE_SQUARE,
+                )
             if slot == selected:
                 # Brighten the selection; never replace the semantic colour.
                 factor = min(1.0, factor * self.selected_boost)
@@ -111,9 +138,38 @@ class LedRenderer:
             if status in statuses:
                 factor = self.brightness
                 if self.pulse:
-                    factor *= pulse_factor(phase, PULSE_DEPTH.get(status, 0.0))
+                    factor *= pulse_factor(
+                        phase,
+                        PULSE_DEPTH.get(status, 0.0),
+                        PULSE_PERIOD.get(status, DEFAULT_PULSE_PERIOD),
+                        square=status in PULSE_SQUARE,
+                    )
                 return [scale(self.color_for(status), factor)] * size
         return [scale(self.colors["idle"], self.brightness)] * size
+
+    def layer_frame(self, slots: SlotMap, phase: float = 0.0) -> list[int]:
+        """The single logo LED (chain 2): the most urgent state, at full intensity.
+
+        The firmware keeps only the MSB of each colour component for this LED (and the
+        chain ignores the enable switches), so the configured colour goes UNSCALED --
+        applying `brightness` would zero every MSB and the LED would never light. The
+        pulse factor still applies: MSB thresholding turns the smooth fade into an
+        on/off blink, which is exactly the attention signal wanted here. All-idle (or
+        empty) leaves it dark, so a lit logo always means something is happening.
+        """
+        statuses = {a.status for a in slots.live_agents()}
+        for status in ("blocked", "done", "working"):
+            if status in statuses:
+                factor = 1.0
+                if self.pulse:
+                    factor = pulse_factor(
+                        phase,
+                        PULSE_DEPTH.get(status, 0.0),
+                        PULSE_PERIOD.get(status, DEFAULT_PULSE_PERIOD),
+                        square=status in PULSE_SQUARE,
+                    )
+                return [scale(self.color_for(status), factor)]
+        return [0x000000] * CHAIN_SIZES[CHAIN_LAYER]
 
     def wants_animation(self, slots: SlotMap) -> bool:
         """True when some visible state pulses, so the caller knows to keep ticking."""

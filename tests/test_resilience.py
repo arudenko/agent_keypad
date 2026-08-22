@@ -1,39 +1,34 @@
-"""The daemon must survive Herdr sending something unexpected."""
+"""The daemon must survive agterm sending something unexpected."""
 
 import asyncio
-import json
 import logging
 
 import pytest
 
 from herdr_km16 import main as m
+from herdr_km16.agterm import AgtermError
 from herdr_km16.config import Config
-from herdr_km16.herdr import HerdrError, event_kind
-
-
-def test_event_kind_normalises_both_spellings():
-    assert event_kind({"event": "pane.agent_status_changed"}) == "pane_agent_status_changed"
-    assert event_kind({"event": "pane_agent_status_changed"}) == "pane_agent_status_changed"
-    assert event_kind({"event": "pane_agent_detected"}) == "pane_agent_detected"
-    assert event_kind({}) == ""
 
 
 @pytest.mark.parametrize("malformed", [
-    {"event": "pane.agent_status_changed"},                       # no data at all
-    {"event": "pane.agent_status_changed", "data": {}},           # missing both fields
-    {"event": "pane.agent_status_changed", "data": {"pane_id": "w1:p1"}},  # no status
-    {"data": {"pane_id": "w1:p1"}},                               # no event name
+    {"kind": "status"},                                        # no session, no payload
+    {"kind": "status", "session": "s1"},                       # no payload at all
+    {"kind": "status", "session": "s1", "payload": "junk"},    # payload not a dict
+    {"payload": {"status": "active"}},                         # no kind
 ])
 def test_malformed_events_do_not_kill_the_loop(malformed, monkeypatch, caplog):
-    """A KeyError here used to propagate out of herdr_loop and end the process."""
+    """An AttributeError/KeyError here must restart the stream, not end the process."""
     controller = m.Controller(Config())
     calls = {"n": 0}
 
     async def fake_reconcile():
-        return ["w1:p1"]
+        return ["s1"]
 
     class OneShotStream:
         def __init__(self, *a, **kw):
+            pass
+
+        async def baseline(self):
             pass
 
         async def __aiter__(self):
@@ -45,23 +40,23 @@ def test_malformed_events_do_not_kill_the_loop(malformed, monkeypatch, caplog):
             raise asyncio.CancelledError
 
     monkeypatch.setattr(controller, "_reconcile", fake_reconcile)
-    monkeypatch.setattr(m, "HerdrEventStream", OneShotStream)
+    monkeypatch.setattr(m, "AgtermEventStream", OneShotStream)
     monkeypatch.setattr(m.asyncio, "sleep", stop_after_one)
 
     with caplog.at_level(logging.DEBUG):
         with pytest.raises(asyncio.CancelledError):
-            asyncio.run(controller.herdr_loop())
+            asyncio.run(controller.agterm_loop())
 
     assert calls["n"] >= 1, "the loop must keep going rather than exit"
 
 
-def test_herdr_errors_still_take_the_quiet_path(monkeypatch, caplog):
+def test_agterm_errors_still_take_the_quiet_path(monkeypatch, caplog):
     """Expected outages log a warning, not a stack trace."""
     controller = m.Controller(Config())
     calls = {"n": 0}
 
     async def failing_reconcile():
-        raise HerdrError("connection_closed", "socket gone")
+        raise AgtermError("connection_closed", "socket gone")
 
     async def stop_after_one(_):
         calls["n"] += 1
@@ -72,7 +67,91 @@ def test_herdr_errors_still_take_the_quiet_path(monkeypatch, caplog):
 
     with caplog.at_level(logging.DEBUG):
         with pytest.raises(asyncio.CancelledError):
-            asyncio.run(controller.herdr_loop())
+            asyncio.run(controller.agterm_loop())
 
-    assert any("herdr unavailable" in r.message for r in caplog.records)
+    assert any("agterm unavailable" in r.message for r in caplog.records)
     assert not any(r.exc_info for r in caplog.records), "an outage is not a crash"
+
+
+def test_outage_clears_the_selection_with_the_slots(monkeypatch, caplog):
+    """The identity map is discarded on an outage; a surviving numeric selection could
+    aim a post-reconnect approve at whichever session lands on that key."""
+    from herdr_km16.mapping import Agent
+
+    controller = m.Controller(Config())
+    controller.slots.sync([Agent("AAAA", "working", terminal_id="AAAA")])
+    controller.router.selected = 0
+
+    async def failing_reconcile():
+        raise AgtermError("connection_closed", "socket gone")
+
+    async def stop(_):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(controller, "_reconcile", failing_reconcile)
+    monkeypatch.setattr(m.asyncio, "sleep", stop)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(controller.agterm_loop())
+
+    assert controller.slots.live_agents() == []
+    assert controller.router.selected is None
+
+
+def test_malformed_status_event_neither_idles_the_agent_nor_restarts(monkeypatch, caplog):
+    """Events always carry an explicit status; one without must be ignored outright."""
+    from herdr_km16.mapping import Agent
+
+    controller = m.Controller(Config())
+    controller.slots.sync([Agent("AAAA", "blocked", terminal_id="AAAA")])
+    calls = {"n": 0}
+
+    async def fake_reconcile():
+        calls["n"] += 1
+        return ["AAAA"]
+
+    class OneShotStream:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def baseline(self):
+            pass
+
+        async def __aiter__(self):
+            yield {"kind": "status", "session": "AAAA", "payload": {"blink": True}}
+            yield {"kind": "status", "session": "AAAA", "payload": "junk"}
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr(controller, "_reconcile", fake_reconcile)
+    monkeypatch.setattr(m, "AgtermEventStream", OneShotStream)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(controller.agterm_loop())
+
+    assert controller.slots.agent_at(0).status == "blocked", "must not be read as idle"
+    assert calls["n"] == 1, "malformed events must not trigger resyncs either"
+
+
+def test_backstop_resync_survives_a_malformed_tree(monkeypatch, caplog):
+    """This task is gathered with the rest; an escaping KeyError would end the daemon."""
+    controller = m.Controller(Config())
+    calls = {"n": 0}
+
+    async def bad_then_stop():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise KeyError("tree")
+        raise asyncio.CancelledError
+
+    async def instant_sleep(_):
+        pass
+
+    monkeypatch.setattr(controller, "_reconcile", bad_then_stop)
+    monkeypatch.setattr(m.asyncio, "sleep", instant_sleep)
+
+    with caplog.at_level(logging.DEBUG):
+        with pytest.raises(asyncio.CancelledError):
+            asyncio.run(controller.reconcile_loop())
+
+    assert calls["n"] == 2, "the loop must survive the malformed response and keep polling"
+    assert any("malformed" in r.message for r in caplog.records)

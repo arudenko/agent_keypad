@@ -92,3 +92,88 @@ def test_parse_event(data, expected):
 def test_parse_event_ignores_unknown_and_empty():
     assert km16.parse_event([]) is None
     assert km16.parse_event([0x7F, 0, 0]) is None
+
+
+def test_both_live_states_fade_and_pace_separates_them():
+    """working and blocked both fade smoothly, full depth (true 0x000000 at the trough);
+    blocked cycles twice as fast so urgency reads even before colour does."""
+    from herdr_km16.leds import PULSE_DEPTH, PULSE_PERIOD, PULSE_SQUARE, pulse_factor
+
+    assert set(PULSE_DEPTH) == {"blocked", "working"}
+    assert PULSE_SQUARE == frozenset(), "fade, not hard blink"
+    for state in ("blocked", "working"):
+        assert PULSE_DEPTH[state] == 1.0
+        period = PULSE_PERIOD[state]
+        assert pulse_factor(0.0, 1.0, period) == pytest.approx(1.0), "crest = fully lit"
+        assert pulse_factor(period / 2, 1.0, period) == pytest.approx(0.0), "trough = dark"
+        assert pulse_factor(period, 1.0, period) == pytest.approx(1.0), "one cycle/period"
+        # the fade is smooth: a quarter cycle sits strictly between lit and dark
+        assert 0.0 < pulse_factor(period / 4, 1.0, period) < 1.0
+    assert PULSE_PERIOD["blocked"] < PULSE_PERIOD["working"], "urgent fades faster"
+
+
+def test_fading_keys_reach_truly_dark_at_their_own_troughs():
+    from herdr_km16.leds import PHASE_STAGGER_SECONDS, PULSE_PERIOD, LedRenderer
+    from herdr_km16.mapping import Agent, SlotMap
+
+    slots = SlotMap()
+    slots.sync([Agent("w1:p1", "blocked"), Agent("w2:p1", "working")])
+    renderer = LedRenderer()
+    assert renderer.key_frame(slots, phase=0.0)[0] != 0x000000
+    assert renderer.key_frame(slots, phase=PULSE_PERIOD["blocked"] / 2)[0] == 0x000000
+    # slot 1 carries one stagger step, so its trough arrives that much earlier
+    slot1_trough = PULSE_PERIOD["working"] / 2 - PHASE_STAGGER_SECONDS
+    assert renderer.key_frame(slots, phase=slot1_trough)[1] == 0x000000
+
+
+def test_keys_in_the_same_state_breathe_out_of_step():
+    """Several working agents must not pulse in lockstep; each key is phase-staggered.
+    Key 0 keeps offset zero; the underglow summary stays on the shared clock."""
+    from herdr_km16.leds import PHASE_STAGGER_SECONDS, PULSE_PERIOD, LedRenderer
+    from herdr_km16.mapping import Agent, SlotMap
+
+    assert PULSE_PERIOD["working"] % PHASE_STAGGER_SECONDS != 0
+    assert PULSE_PERIOD["blocked"] % PHASE_STAGGER_SECONDS != 0
+    slots = SlotMap()
+    slots.sync([Agent(f"w{i}", "working") for i in range(3)])
+    frame = LedRenderer().key_frame(slots, phase=0.4)
+    assert len({frame[0], frame[1], frame[2]}) == 3, "same state, three distinct phases"
+
+
+def test_layer_led_shows_the_most_urgent_state_at_full_intensity():
+    """The logo LED keeps only the MSB of each channel, so its colour must go unscaled --
+    brightness-scaled values would zero every MSB and the LED would never light."""
+    from herdr_km16.leds import LedRenderer
+    from herdr_km16.mapping import Agent, SlotMap
+
+    renderer = LedRenderer(pulse=False, brightness=0.35)
+    slots = SlotMap()
+    slots.sync([Agent("a", "working"), Agent("b", "done")])
+    assert renderer.layer_frame(slots) == [0x00FF44], "done outranks working, unscaled"
+    slots.update_status("a", "blocked")
+    frame = renderer.layer_frame(slots)
+    assert frame == [0xFF0000]
+    assert (frame[0] >> 16) & 0x80, "the MSB must survive, or the 1-bit LED stays dark"
+
+
+def test_layer_led_is_dark_when_everything_is_idle():
+    from herdr_km16.leds import LedRenderer
+    from herdr_km16.mapping import Agent, SlotMap
+
+    slots = SlotMap()
+    assert LedRenderer(pulse=False).layer_frame(slots) == [0x000000]
+    slots.sync([Agent("a", "idle")])
+    assert LedRenderer(pulse=False).layer_frame(slots) == [0x000000], \
+        "a lit logo must always mean something is happening"
+
+
+def test_layer_led_blinks_with_the_blocked_fade():
+    """MSB thresholding turns the smooth fade into on/off at the logo LED."""
+    from herdr_km16.leds import PULSE_PERIOD, LedRenderer
+    from herdr_km16.mapping import Agent, SlotMap
+
+    slots = SlotMap()
+    slots.sync([Agent("a", "blocked")])
+    renderer = LedRenderer()
+    assert renderer.layer_frame(slots, phase=0.0) == [0xFF0000]
+    assert renderer.layer_frame(slots, phase=PULSE_PERIOD["blocked"] / 2) == [0x000000]

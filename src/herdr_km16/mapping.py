@@ -3,6 +3,11 @@
 The device is only useful if a key keeps meaning the same agent. Slots are therefore sticky:
 an agent holds its key for as long as it is alive, new agents take the lowest free key, and
 nothing is ever re-sorted on a state change.
+
+With ``compact=True`` the pad instead MIRRORS the snapshot order: agents occupy the keys
+gap-free in the order the tree lists them (agterm's sidebar, top to bottom), so closing a
+session shifts the ones below it down, and reordering sessions in the sidebar remaps the
+keys to match. A status change still never moves anything -- the tree order does.
 """
 
 from __future__ import annotations
@@ -54,6 +59,9 @@ class SlotMap:
     preserve_slots: bool = True
     # Keys bound to actions instead of agents; never allocated to an agent.
     action_slots: frozenset[int] = frozenset()
+    # Mirror the snapshot (sidebar) order gap-free (see the module docstring).
+    # Off = fully sticky keys.
+    compact: bool = False
     _slots: list[str | None] = field(default_factory=list, init=False)
     _agents: dict[str, Agent] = field(default_factory=dict, init=False)
 
@@ -134,6 +142,10 @@ class SlotMap:
     def sync(self, agents: list[Agent]) -> None:
         """Reconcile against an authoritative agent list (a fresh snapshot)."""
         incoming = {a.identity: a for a in agents}
+        if self.compact:
+            self._agents = incoming
+            self._compact(incoming)
+            return
         for slot, identity in enumerate(self._slots):
             if identity and identity not in incoming:
                 if not (self.preserve_slots and self.static.get(slot) == identity):
@@ -142,6 +154,27 @@ class SlotMap:
         for identity in incoming:
             if self.slot_of(identity) is None:
                 self._allocate(identity)
+
+    def _compact(self, incoming: dict[str, Agent]) -> None:
+        """Rebuild the map gap-free in snapshot order: pins hold their keys, everyone
+        else fills the free keys top-to-bottom exactly as the tree lists them, and every
+        remaining key is left unlit. `incoming` preserves the snapshot's order."""
+        slots: list[str | None] = [None] * self.slot_count
+        placed: set[str] = set()
+        for slot, identity in self.static.items():
+            if 0 <= slot < self.slot_count and slot not in self.action_slots:
+                if identity in incoming:
+                    slots[slot] = identity
+                    placed.add(identity)
+        order = [i for i in incoming if i not in placed]
+        free = [
+            slot for slot in range(self.slot_count)
+            if slot not in self.action_slots and slots[slot] is None
+            and self.static.get(slot) is None  # a reservation stays held open
+        ]
+        for identity, slot in zip(order, free):
+            slots[slot] = identity
+        self._slots = slots
 
     def upsert(self, agent: Agent) -> int | None:
         """Add or update one agent, allocating a slot if it is new."""

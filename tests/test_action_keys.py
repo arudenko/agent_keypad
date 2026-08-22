@@ -19,17 +19,27 @@ ACTIONS = {12: "approve", 13: "reject", 14: "interrupt", 15: "next_attention"}
 
 
 class FakeClient:
-    """Records calls instead of touching Herdr."""
+    """Records calls instead of touching agterm."""
 
     def __init__(self):
         self.sent: list[tuple[str, list[str]]] = []
         self.focused: list[str] = []
+        self.jumped: int = 0
+        self.jump_result: str | None = "w1:p1"
+        self.activated: int = 0
 
     async def send_keys(self, target, keys):
         self.sent.append((target, keys))
 
     async def focus_agent(self, target):
         self.focused.append(target)
+
+    async def next_attention(self):
+        self.jumped += 1
+        return self.jump_result
+
+    async def activate_app(self):
+        self.activated += 1
 
 
 def make_router(action_keys=None, **overrides):
@@ -98,7 +108,7 @@ def test_approve_works_on_a_long_press():
     router, client, _ = make_router()
     router.selected = 0
     press(router, 12, held_ms=800)
-    assert client.sent == [("w1:p1", ["enter"])]
+    assert client.sent == [("w1:p1", ["\n"])], "approve is a literal Return press"
 
 
 def test_interrupt_needs_a_long_press():
@@ -107,14 +117,14 @@ def test_interrupt_needs_a_long_press():
     press(router, 14, held_ms=100)
     assert client.sent == []
     press(router, 14, held_ms=800)
-    assert client.sent == [("w1:p1", ["ctrl+c"])]
+    assert client.sent == [("w1:p1", ["\x03"])], "interrupt is a literal Ctrl-C"
 
 
 def test_reject_is_instant():
     router, client, _ = make_router()
     router.selected = 0
     press(router, 13, held_ms=40)
-    assert client.sent == [("w1:p1", ["esc"])]
+    assert client.sent == [("w1:p1", ["\x1b"])], "reject is a literal Esc"
 
 
 def test_actions_do_nothing_without_a_selection():
@@ -130,7 +140,7 @@ def test_action_keys_never_focus_an_agent():
     router.selected = 0
     for key in ACTIONS:
         press(router, key, held_ms=800)
-    assert client.focused == [], "action keys must not change Herdr focus"
+    assert client.focused == [], "action keys must not call session.select"
 
 
 def test_agent_key_press_still_only_focuses():
@@ -143,17 +153,65 @@ def test_agent_key_press_still_only_focuses():
 # --- next_attention ---------------------------------------------------------
 
 
-def test_next_attention_selects_without_sending_anything():
+def test_next_attention_jumps_server_side_without_sending_anything():
+    """agterm's session.go picks the target; the pad only follows the answer."""
     router, client, _ = make_router()
     press(router, 15, held_ms=40)
-    assert router.selected == 0, "blocked agent ranks first"
+    assert client.jumped == 1, "the jump must be delegated to session.go"
+    assert router.selected == 0, "selection follows the session agterm chose"
     assert client.sent == [] and client.focused == []
 
 
 def test_next_attention_is_not_gated_by_long_press():
-    router, _, _ = make_router()
+    router, client, _ = make_router()
     press(router, 15, held_ms=10)
-    assert router.selected is not None
+    assert client.jumped == 1 and router.selected is not None
+
+
+def test_next_attention_with_no_slot_for_the_answer_clears_the_selection():
+    """agterm can land on a session the pad has no key for (overflow). agterm has
+    already switched there, so keeping the old selection would aim a subsequent approve
+    at a session the user is no longer looking at -- it must clear instead."""
+    router, client, _ = make_router()
+    client.jump_result = "not-a-known-session"
+    router.selected = 1
+    press(router, 15, held_ms=40)
+    assert router.selected is None
+    press(router, 12, held_ms=800)  # approve with no selection must do nothing
+    assert client.sent == []
+
+
+# --- app activation ---------------------------------------------------------
+
+
+def test_focus_also_raises_the_macos_app():
+    router, client, _ = make_router()
+    press(router, 0, held_ms=50)
+    assert client.focused == ["w1:p1"]
+    assert client.activated == 1, "a pad press means 'show me': raise agterm too"
+
+
+def test_next_attention_also_raises_the_macos_app():
+    router, client, _ = make_router()
+    press(router, 15, held_ms=40)
+    assert client.activated == 1
+
+
+def test_activate_app_false_keeps_agterm_in_the_background():
+    router, client, _ = make_router(activate_app=False)
+    press(router, 0, held_ms=50)
+    press(router, 15, held_ms=40)
+    assert client.focused == ["w1:p1"] and client.jumped == 1
+    assert client.activated == 0
+
+
+def test_approve_reject_interrupt_never_raise_the_app():
+    """Acting on the already-selected agent is not a request to switch applications."""
+    router, client, _ = make_router()
+    router.selected = 0
+    for key in (12, 13, 14):
+        press(router, key, held_ms=800)
+    assert client.activated == 0
 
 
 # --- rendering --------------------------------------------------------------
@@ -184,8 +242,10 @@ def test_action_keys_do_not_pulse_even_next_to_a_blocked_agent():
     _, _, slots = make_router()
     cfg = Config(action_keys=dict(ACTIONS))
     renderer = LedRenderer(action_keys=cfg.action_keys, action_colors=cfg.action_colors)
+    # 0.25 is a quarter of blocked's 1s cycle (clearly mid-fade); avoid multiples of
+    # the period, which alias to the crest.
     a = renderer.key_frame(slots, selected=0, phase=0.0)
-    b = renderer.key_frame(slots, selected=0, phase=0.5)
+    b = renderer.key_frame(slots, selected=0, phase=0.25)
     assert a[12:] == b[12:], "action keys are controls, not status; they must stay steady"
     assert a[0] != b[0], "the blocked agent should still pulse"
 
@@ -203,7 +263,7 @@ def test_slot_zero_can_be_actioned():
     router, client, _ = make_router()
     router.selected = 0
     press(router, 13, held_ms=40)
-    assert client.sent == [("w1:p1", ["esc"])]
+    assert client.sent == [("w1:p1", ["\x1b"])]
 
 
 def test_bounced_press_is_swallowed():
@@ -228,7 +288,7 @@ def test_guard_uses_the_configured_threshold_not_a_hardcoded_one():
     assert client.sent == [], "290ms must not clear a 300ms guard"
 
     press(router, 12, held_ms=310)
-    assert client.sent == [("w1:p1", ["enter"])], "310ms should clear a 300ms guard"
+    assert client.sent == [("w1:p1", ["\n"])], "310ms should clear a 300ms guard"
 
 
 def test_threshold_is_honoured_when_reconfigured():
@@ -241,3 +301,28 @@ def test_threshold_is_honoured_when_reconfigured():
 def test_shipped_config_uses_300ms():
     cfg = load_config(Path(__file__).resolve().parent.parent / "config.yaml")
     assert cfg.long_press_ms == 300
+
+
+def test_agterm_outage_during_an_action_is_a_warning_not_a_crash(caplog):
+    """The socket client raises OSError (not AgtermError) when agterm is down; every
+    action path must take the quiet warning path, not surface a traceback."""
+    import logging
+
+    class DeadClient(FakeClient):
+        async def focus_agent(self, target):
+            raise ConnectionRefusedError("agterm is down")
+
+        async def send_keys(self, target, keys):
+            raise ConnectionRefusedError("agterm is down")
+
+        async def next_attention(self):
+            raise FileNotFoundError("no socket")
+
+    router, _, slots = make_router()
+    router.client = DeadClient()
+    router.selected = 0
+    with caplog.at_level(logging.DEBUG):
+        press(router, 0, held_ms=50)     # focus
+        press(router, 13, held_ms=40)    # reject -> send_keys
+        press(router, 15, held_ms=40)    # next_attention
+    assert any("failed" in r.message for r in caplog.records)
