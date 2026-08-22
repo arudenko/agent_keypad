@@ -99,21 +99,21 @@ def test_pinning_to_an_action_key_is_rejected(tmp_path):
 
 def test_approve_needs_a_long_press():
     router, client, _ = make_router()
-    router.selected = 0
+    router.selected = "w1:p1"
     press(router, 12, held_ms=100)
     assert client.sent == [], "a short press must not approve anything"
 
 
 def test_approve_works_on_a_long_press():
     router, client, _ = make_router()
-    router.selected = 0
+    router.selected = "w1:p1"
     press(router, 12, held_ms=800)
     assert client.sent == [("w1:p1", ["\n"])], "approve is a literal Return press"
 
 
 def test_interrupt_needs_a_long_press():
     router, client, _ = make_router()
-    router.selected = 0
+    router.selected = "w1:p1"
     press(router, 14, held_ms=100)
     assert client.sent == []
     press(router, 14, held_ms=800)
@@ -122,7 +122,7 @@ def test_interrupt_needs_a_long_press():
 
 def test_reject_is_instant():
     router, client, _ = make_router()
-    router.selected = 0
+    router.selected = "w1:p1"
     press(router, 13, held_ms=40)
     assert client.sent == [("w1:p1", ["\x1b"])], "reject is a literal Esc"
 
@@ -137,7 +137,7 @@ def test_actions_do_nothing_without_a_selection():
 
 def test_action_keys_never_focus_an_agent():
     router, client, _ = make_router()
-    router.selected = 0
+    router.selected = "w1:p1"
     for key in ACTIONS:
         press(router, key, held_ms=800)
     assert client.focused == [], "action keys must not call session.select"
@@ -158,7 +158,7 @@ def test_next_attention_jumps_server_side_without_sending_anything():
     router, client, _ = make_router()
     press(router, 15, held_ms=40)
     assert client.jumped == 1, "the jump must be delegated to session.go"
-    assert router.selected == 0, "selection follows the session agterm chose"
+    assert router.selected == "w1:p1", "selection follows the session agterm chose"
     assert client.sent == [] and client.focused == []
 
 
@@ -168,17 +168,31 @@ def test_next_attention_is_not_gated_by_long_press():
     assert client.jumped == 1 and router.selected is not None
 
 
-def test_next_attention_with_no_slot_for_the_answer_clears_the_selection():
-    """agterm can land on a session the pad has no key for (overflow). agterm has
-    already switched there, so keeping the old selection would aim a subsequent approve
-    at a session the user is no longer looking at -- it must clear instead."""
+def test_next_attention_landing_on_an_unknown_session_clears_the_selection():
+    """agterm can land on a session the cache does not know (stale, mid-resync). agterm
+    has already switched there, so keeping the old selection would aim a subsequent
+    approve at a session the user is no longer looking at -- it must clear instead."""
     router, client, _ = make_router()
     client.jump_result = "not-a-known-session"
-    router.selected = 1
+    router.selected = "w2:p1"
     press(router, 15, held_ms=40)
     assert router.selected is None
     press(router, 12, held_ms=800)  # approve with no selection must do nothing
     assert client.sent == []
+
+
+def test_next_attention_follows_a_known_session_without_a_key():
+    """A session beyond the pad's keys is still a valid selection: agterm has switched
+    to it, and the bottom row must act on what the user is looking at."""
+    router, client, slots = make_router()
+    slots.sync([Agent(f"w{i}:p1", "working") for i in range(13)])  # 12 keys + 1 overflow
+    assert slots.slot_of("w12:p1") is None, "the 13th session must not hold a key"
+    client.jump_result = "w12:p1"
+    press(router, 15, held_ms=40)
+    assert router.selected == "w12:p1"
+    assert router.selected_slot is None
+    press(router, 12, held_ms=800)  # approve targets the keyless session
+    assert client.sent == [("w12:p1", ["\n"])]
 
 
 # --- app activation ---------------------------------------------------------
@@ -208,7 +222,7 @@ def test_activate_app_false_keeps_agterm_in_the_background():
 def test_approve_reject_interrupt_never_raise_the_app():
     """Acting on the already-selected agent is not a request to switch applications."""
     router, client, _ = make_router()
-    router.selected = 0
+    router.selected = "w1:p1"
     for key in (12, 13, 14):
         press(router, key, held_ms=800)
     assert client.activated == 0
@@ -259,16 +273,17 @@ def test_shipped_config_binds_the_bottom_row():
 
 
 def test_slot_zero_can_be_actioned():
-    """Regression: `self.selected or -1` treated slot 0 as 'nothing selected'."""
+    """Regression (from the slot-index era): a falsy-looking selection was read as
+    'nothing selected'. The selection is an identity now, but the guarantee stands."""
     router, client, _ = make_router()
-    router.selected = 0
+    router.selected = "w1:p1"
     press(router, 13, held_ms=40)
     assert client.sent == [("w1:p1", ["\x1b"])]
 
 
 def test_bounced_press_is_swallowed():
     router, client, _ = make_router()
-    router.selected = 0
+    router.selected = "w1:p1"
     asyncio.run(router.handle_key(13, True))
     asyncio.run(router.handle_key(13, False))
     client.sent.clear()
@@ -282,7 +297,7 @@ def test_bounced_press_is_swallowed():
 def test_guard_uses_the_configured_threshold_not_a_hardcoded_one():
     """A press just under the threshold is refused; just over is accepted."""
     router, client, _ = make_router(long_press_ms=300)
-    router.selected = 0
+    router.selected = "w1:p1"
 
     press(router, 12, held_ms=290)
     assert client.sent == [], "290ms must not clear a 300ms guard"
@@ -293,7 +308,7 @@ def test_guard_uses_the_configured_threshold_not_a_hardcoded_one():
 
 def test_threshold_is_honoured_when_reconfigured():
     router, client, _ = make_router(long_press_ms=1000)
-    router.selected = 0
+    router.selected = "w1:p1"
     press(router, 12, held_ms=500)
     assert client.sent == [], "the guard must follow config, not a constant"
 
@@ -320,7 +335,7 @@ def test_agterm_outage_during_an_action_is_a_warning_not_a_crash(caplog):
 
     router, _, slots = make_router()
     router.client = DeadClient()
-    router.selected = 0
+    router.selected = "w1:p1"
     with caplog.at_level(logging.DEBUG):
         press(router, 0, held_ms=50)     # focus
         press(router, 13, held_ms=40)    # reject -> send_keys

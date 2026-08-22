@@ -76,4 +76,4 @@ def test_brightness_knob_does_not_move_the_selection():
 def test_shipped_config_puts_brightness_on_the_right_knob():
     cfg = load_config(Path(__file__).resolve().parent.parent / "config.yaml")
     assert cfg.right_encoder.rotate == "brightness"
-    assert cfg.main_encoder.rotate == "cycle_attention_agents"
+    assert cfg.main_encoder.rotate == "cycle_agents"

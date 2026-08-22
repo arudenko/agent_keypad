@@ -82,15 +82,12 @@ class Controller:
 
     async def _reconcile(self) -> list[str]:
         records = await self.client.list_agents()
-        # Compaction can move an agent to a different key; the selection must follow the
-        # AGENT, not the key number, or an approve after a close could hit a neighbour.
-        selected = (
-            self.slots.agent_at(self.router.selected)
-            if self.router.selected is not None else None
-        )
         self.slots.sync([_agent_from_record(r) for r in records])
-        if selected is not None:
-            self.router.selected = self.slots.slot_of(selected.identity)
+        # The selection is an identity, so compaction moving its key needs no fixup --
+        # but a session that left the snapshot must clear, not dangle: a later session
+        # reusing the identity would inherit an approve the user never aimed at it.
+        if self.router.selected is not None and self.slots.agent(self.router.selected) is None:
+            self.router.selected = None
         self.dirty.set()
         return [r["pane_id"] for r in records]
 
@@ -126,11 +123,14 @@ class Controller:
                     # `notify` and anything future: not ours.
             except (AgtermError, OSError) as exc:
                 log.warning("agterm unavailable (%s); retrying in %ss", exc, self.config.reconnect_seconds)
-                if self.slots.live_agents():
+                # session_order, not live_agents: the selection can be a keyless session
+                # now, and live_agents only sees the keyed ones -- a config with no free
+                # agent keys would skip this clear entirely.
+                if self.slots.session_order() or self.router.selected is not None:
                     self.slots.sync([])
-                    # The identity map is gone, so the numeric selection is meaningless --
-                    # after reconnect a DIFFERENT session could land on that key and an
-                    # approve would hit a session the user never selected.
+                    # The identity map is gone. A dangling identity would silently
+                    # re-arm the moment a session with the same id reappears, so the
+                    # selection clears with it; the user re-selects after reconnect.
                     self.router.selected = None
                     self.dirty.set()
             except asyncio.CancelledError:
@@ -271,7 +271,7 @@ class Controller:
                 continue
             phase = (time.monotonic() - start) if animating else 0.0
             try:
-                device.set_frame(CHAIN_KEYS, self.renderer.key_frame(self.slots, self.router.selected, phase))
+                device.set_frame(CHAIN_KEYS, self.renderer.key_frame(self.slots, self.router.selected_slot, phase))
                 device.set_frame(CHAIN_UNDERGLOW, self.renderer.underglow_frame(self.slots, phase))
                 device.set_frame(CHAIN_LAYER, self.renderer.layer_frame(self.slots, phase))
             except Exception as exc:
