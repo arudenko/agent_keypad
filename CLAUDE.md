@@ -1,95 +1,81 @@
-# agent_keypad — MMD KM16 → Herdr agent controller
+# agent_keypad — MMD KM16 → agterm agent controller (macOS fork)
 
 Turn an MMD KM16 macropad into a bidirectional physical control surface for the Claude Code
-agents running inside Herdr: keys focus agents, per-key RGB reflects agent state, encoders
+agents running inside agterm: keys focus sessions, per-key RGB reflects agent state, encoders
 navigate and act.
 
-Full background, rationale and acceptance criteria: `herdr-km16-controller-handoff.md`.
-Read that once; this file is the working reference.
+This fork ports the original Windows/Herdr controller (by bramdes) to macOS + agterm. The
+legacy Herdr client stays importable at `src/herdr_km16/herdr.py` but is unmaintained; its
+hard-won transport notes live in that module's docstring and in git history.
 
-## Environment (verified 2026-08-08 — do not re-derive, but do re-verify if something breaks)
+## Environment (verified 2026-08-22 — do not re-derive, but do re-verify if something breaks)
 
 | Thing | Value |
 | --- | --- |
-| OS | Windows 11 Pro 26200 |
-| Shell | PowerShell primary; Git Bash available |
-| Python | `.venv` in repo root, **CPython 3.12.10** (`py -3.12`) |
-| Node | v24.14.0 (not used; Python implementation) |
-| Herdr | 0.8.0-preview.2026-08-04-d78e3d3b5126, **protocol 19** |
-| Herdr socket | `%APPDATA%\herdr\herdr.sock` via `HERDR_SOCKET_PATH` |
-| KM16 (stock) | USB `VID 0x5343 / PID 0x0080`, product string `KM16` |
-| KM16 (now) | **flashed**, RAW HID `VID 0x1209 / PID 0x88BF`, 64-byte packets |
-| dfu-util | 0.11, `C:\Soft\dfu-util\win64` (on user PATH; not in winget) |
-| arduino-cli | 1.5.1, `C:\Program Files\Arduino CLI\`; STM32 core 3.0.0 |
+| OS | macOS (Darwin 25.5.0), Apple Silicon |
+| Python | `.venv` in repo root, CPython 3.13 (`python3`) |
+| agterm | control socket `~/Library/Application Support/agterm/agterm.sock`; bundle id `com.umputun.agterm` |
+| agterm hooks | Claude Code status hooks installed in `~/.claude/settings.json` (blocked / active --blink / completed --auto-reset) |
+| KM16 (stock) | USB `VID 0x5343 / PID 0x0080`, product string `KM16`, **8 HID interfaces on macOS** |
+| KM16 (now) | **flashed**, RAW HID `VID 0x1209 / PID 0x88BF`, usage page **0xFF00**, 64-byte packets |
+| Stock backup | `~/km16-firmware-backup/backup.bin` + `.sha256`, 122880 bytes |
+| dfu-util / arduino-cli | 0.11 / 1.5.1 via Homebrew; STM32 core 3.0.0 |
 
-Claude Code runs *inside* Herdr here, so `HERDR_ENV=1` and this session is itself one of the
-agents the keypad will control. Handy for testing; also means a careless `agent.send_keys`
-can hit your own pane.
+Claude Code runs *inside* agterm here, so `AGTERM_ENABLED=1` and this session is itself one
+of the agents the keypad will control. Handy for testing; also means a careless
+`session.type` can hit your own session.
 
 ## Python conventions
 
 Always use the repo-local virtualenv. Never install globally.
 
-```powershell
-.\.venv\Scripts\python.exe -m pip install <pkg>   # then record it in pyproject.toml
-.\.venv\Scripts\python.exe -m pytest               # run tests
+```bash
+.venv/bin/pip install <pkg>     # then record it in pyproject.toml
+.venv/bin/python -m pytest      # run tests
 ```
 
-Dependencies: `hidapi` (ships the DLL on Windows; `import hid`), `pyyaml`, `pytest`.
+Dependencies: `hidapi` (`import hid` is lazy in km16.py), `pyyaml`, `pytest`.
 
-## Herdr socket API — hard-won facts
+## agterm control socket — verified facts
 
-The bundled schema is the source of truth and is committed at `docs/herdr-api.schema.json`.
-Regenerate after any Herdr update:
+All verified empirically against the live install by capturing `agtermctl`'s wire traffic
+and probing the socket (see `src/herdr_km16/agterm.py`'s docstring, and
+`tests/test_agterm.py` which pins the framing):
 
-```powershell
-.\scripts\refresh-herdr-schema.ps1
-```
+- AF_UNIX socket; resolve like agtermctl: `$AGTERM_SOCKET`, else `$AGTERM_STATE_DIR`, else
+  `~/Library/Application Support/agterm/agterm.sock`.
+- Requests are one JSON object per line: `{"cmd": ..., "target": ..., "args": {...}}` —
+  `target` and `args` are top-level and optional.
+- Responses: `{"ok": true, "result": {...}}` or `{"ok": false, "error": "<string>"}`.
+- **Every connection is one-shot** — the server closes it after a single response; a second
+  request on the same connection gets a reset. Fresh connection per request.
+- **Events are a cursor poll, not a subscription** (`events.read`). Result:
+  `{"events": {"run": UUID, "items": [...], "next": N}}`. No cursor = baseline at the
+  current tail (empty items). Resume with `{"run": <run>, "after": "<next>", "limit": N}` —
+  **`after` is a string on the wire**. A changed `run` UUID means the app restarted and the
+  cursor is void: resync from `tree`. agtermctl idles 250 ms between polls; so do we.
+- Event kinds used: `status` (payload `{status, blink, name, pane?}`, explicit `"idle"`),
+  `session.created`, `session.closed`, `tree.changed` (empty payload). `notify` is ignored.
+- `tree` returns the frontmost window's workspaces → sessions. A session node carries
+  `status` (`active|completed|blocked`, **absent = idle**), `name`, `cwd`, `title`, ids.
+- Commands used: `session.select` (focus), `session.type` (`args: {text, select:false}`;
+  a newline is a Return press), `session.go` (`args: {to: "next-attention"}`, returns the
+  landed session id).
+- The socket never raises the app over other macOS applications — that needs
+  `open -b com.umputun.agterm` (see `AgtermClient.activate_app`).
 
-Transport and framing, all verified empirically against this install:
+**Identity trap — session names are OSC titles.** Claude Code rewrites the sidebar name
+constantly, and any program rendering output in a session can set it. Identity and command
+target are therefore ALWAYS the session UUID; `_agent_from_record` deliberately leaves
+`Agent.name` unset and `tests/test_agterm.py` pins that. Never key anything on the name.
 
-- **Windows transport is a named pipe**, not an AF_UNIX socket. The pipe name literally
-  embeds the path: `\\.\pipe\C:\Users\<user>\AppData\Roaming\herdr\herdr.sock`.
-  The file at `HERDR_SOCKET_PATH` is *not* a socket — it holds `<server_pid>:<token>`.
-- **Do not use Python's `open()` on the pipe.** Interleaving reads and writes on the
-  CRT-backed handle fails with `OSError: [Errno 22]` after the first response. Use
-  `ProactorEventLoop.create_pipe_connection()` (see `src/herdr_km16/herdr.py`).
-- Requests are newline-delimited JSON: `{"id": ..., "method": ..., "params": {...}}`.
-  **`params` is mandatory** even when empty — omitting it is an `invalid_request`.
-- Any protocol error **closes the connection**. There is no recovery; reconnect.
-- **A plain RPC connection is one-shot**: the server closes it after the single response.
-  Open a fresh connection per request.
-- **After `events.subscribe` the connection becomes an event stream only.** Further requests
-  on it are not answered — the next line you read is an event. So the daemon keeps
-  *two* kinds of connection: short-lived RPC connections, and one long-lived event stream.
-- The response body and its trailing `\n` arrive as **separate pipe messages**. Always read
-  by line, never assume one read == one message.
+Status mapping (one translation layer, `agterm.map_status`): `active→working`,
+`completed→done`, `blocked→blocked`, absent/`idle`→`idle`, anything else→`unknown`. The
+internal vocabulary stays Herdr's so config colour keys and the renderer are unchanged.
 
-**Naming trap — Herdr is inconsistent, and it cost real time here.** Subscription types are
-always dot-separated, but the *envelope* spelling varies per event type. Verified on
-protocol 19:
-
-```json
-{"event": "pane_agent_detected",       "data": {"type": "pane_agent_detected", ...}}
-{"event": "pane.agent_status_changed", "data": {...}}   // dots, and no "type" field
-```
-
-Matching only the snake_case spelling silently drops every status change and looks exactly
-like "Herdr never sends this event" — polling then covers for it, so nothing appears broken.
-Always normalise with `herdr.event_kind()` rather than comparing `event` directly.
-
-Subscription coverage:
-
-- `pane.agent_status_changed` **requires an explicit `pane_id`** — there is no wildcard.
-  The daemon must subscribe per agent pane and re-subscribe when new panes appear
-  (which means re-opening the event stream, since you cannot send on a subscribed one).
-- `pane.created` / `pane.closed` / `pane.exited` / `pane.agent_detected` are global (no filter).
-- `pane.focused` fires constantly. Do not subscribe unless you actually need it.
-- `pane.agent_detected` replays for all existing agent panes right after you subscribe.
-
-Agent states: `idle`, `working`, `blocked`, `done`, `unknown`. Note `done` collapses to
-`idle` once seen, and *focusing* an agent marks it seen — so pressing a key will normally
-turn a green (done) LED into dim white (idle). That is correct behaviour, not a bug.
+Note the Claude Code hook sets `completed --auto-reset`, so revealing a session in agterm
+collapses `done` back to idle — pressing a green key turns it dim white. Correct behaviour,
+not a bug.
 
 ## RawMacroPad protocol
 
@@ -197,52 +183,54 @@ firmware `0x06` reset above — but the race is real and was fixed on the way pa
 ## Layout
 
 ```
-docs/          committed generated artifacts + protocol notes
-scripts/       PowerShell: firmware backup/flash/restore, schema refresh
-src/herdr_km16/  the daemon
-tools/         interactive hardware + Herdr probes (Phase 3/4)
-tests/         unit tests (no hardware, no Herdr required)
+docs/          legacy Herdr artifacts + protocol notes (historical)
+scripts/       firmware backup/flash/restore: bash (macOS) + legacy .ps1 (Windows)
+src/herdr_km16/  the daemon; agterm.py is the live backend, herdr.py is legacy
+tools/         interactive hardware + agterm probes (agterm_watch, probe_device, ...)
+tests/         unit tests (no hardware, no agterm required)
 ```
 
 ## Safety rules
 
 These are not optional — the keypad can drive agents that execute shell commands.
 
-- Never auto-approve a `blocked` agent. Selecting or focusing an agent must never answer a
+- Never auto-approve a `blocked` agent. Selecting or focusing a session must never answer a
   prompt — approval is only ever a separate, deliberate action on its own key.
 - **Agent keys (0–11) focus and nothing more.** They never send a keystroke.
 - Approval lives on the bottom row (keys 12–15), added at the user's request 2026-08-09.
   `approve` and `interrupt` require a 300 ms hold; `reject` and `next_attention` are instant
   because neither can approve anything. Guards are enforced in `ActionRouter.run_action` and
   tested in `tests/test_action_keys.py` — treat those tests as requirements, not examples.
-- Approve sends `enter`, which accepts whatever option Claude Code has highlighted. That is
-  usually but not always "Yes", so it is a fast path for prompts the user has already read.
+- Approve types a literal Return (`"\n"` via `session.type`), which accepts whatever option
+  Claude Code has highlighted. That is usually but not always "Yes", so it is a fast path
+  for prompts the user has already read.
 - Use structured socket requests or `subprocess` argument arrays. Never `shell=True`,
   never interpolate an agent name into a command string.
 - Debounce physical keys.
 - Log every control action while developing.
-- **Firmware backup before any flash.** `original_firmware.bin` must be 122880 bytes and is
-  stored *outside* the repo; `.gitignore` blocks `*.bin` deliberately.
+- **Firmware backup before any flash.** The backup pair (`backup.bin` + `backup.sha256`,
+  exactly 122880 bytes) is stored *outside* the repo; `.gitignore` blocks `*.bin`
+  deliberately, and the flash script refuses to run without a verified pair.
 
-## Status
+## Status (macOS fork, 2026-08-22)
 
-All phases through integration are done and verified on hardware:
+The port is done and verified on hardware:
 
-- Stock firmware backed up (122880 bytes, hash in `docs/firmware-backup.md`) with an
-  offsite copy. Restore procedure is scripted and the bootloader identity matched exactly.
-- **Patched** RawMacroPad firmware flashed; device live on `1209:88bf`.
-- 19/19 keys, 3/3 encoders and all three LED chains confirmed by `tools/hw_selftest.py`.
-- Daemon drives the pad from live agent state; keys focus, bottom row acts.
+- Stock firmware backed up on this unit (122880 bytes, `~/km16-firmware-backup/backup.bin`
+  + `.sha256`); the hash in `docs/firmware-backup.md` is the ORIGINAL author's unit --
+  hashes are device-specific, the exact byte count is the load-bearing check.
+- **Patched** RawMacroPad firmware flashed; device live on `1209:88bf`, usage page 0xFF00
+  (NOT QMK's 0xFF60 -- the stock VIA firmware is the one that exposes 0xFF60).
+- Keys, encoders and LED chains verified end-to-end against live agterm sessions; keys
+  focus (and raise the app via `open -b`), bottom row acts, Next jumps server-side.
+- `mapping.compact: true` closes key gaps on session close; the reconcile makes the
+  selection follow the AGENT across the shift so a post-close approve cannot misfire.
+- Only `blocked` animates: a full-depth 1 s fade to true dark and back (`leds.PULSE_*`;
+  the square-wave blink variant remains available in `pulse_factor`).
 
-LED updates are event-driven: `pane.agent_status_changed` does fire, and arrives slightly
-ahead of what polling detects. `reconcile_loop` (`herdr.poll_seconds`, 5 s) is only a
-backstop for a dropped subscription or a not-yet-resubscribed pane.
+Remaining: no launchd startup service yet.
 
-Remaining: no startup service yet. `tools/diag_event_vs_poll.py` re-checks event delivery
-against real transitions if this is ever in doubt again -- it distinguishes subscribed from
-unsubscribed panes and proves its own listener stayed alive, because three earlier attempts
-at that experiment each produced a confident wrong answer without those controls.
-
-Getting into DFU needs WinUSB bound to the bootloader via Zadig (`C:\Soft\zadig-2.9.exe`);
-without it `dfu-util` sees `1eaf:0003` but cannot open it. Enter bootloader mode by holding
-the top-left key while plugging in USB.
+macOS DFU needs no driver step at all (no Zadig/WinUSB); `brew install dfu-util` and the
+bash scripts are enough. Enter bootloader mode by holding the top-left key while plugging
+in USB. Input Monitoring permission is required for HID *reads* -- a pad that lights but
+ignores keys is that permission missing (see README).
