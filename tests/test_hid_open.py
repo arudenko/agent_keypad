@@ -17,9 +17,15 @@ KEYBOARD_IFACE = {
     "interface_number": 0, "path": b"kbd-path",
 }
 RAW_IFACE = {
-    "vendor_id": VID, "product_id": PID, "usage_page": RAW_USAGE_PAGE, "usage": 0x0061,
+    "vendor_id": VID, "product_id": PID, "usage_page": RAW_USAGE_PAGE, "usage": 0x0001,
     "interface_number": 1, "path": b"raw-path",
 }
+
+
+def test_raw_usage_page_matches_the_rawmacropad_descriptor():
+    """0xFF00 per the firmware's report descriptor -- NOT QMK/VIA's 0xFF60, which the
+    stock firmware exposes for the VIA configurator and which reads nothing useful."""
+    assert RAW_USAGE_PAGE == 0xFF00
 
 
 class FakeHandle:

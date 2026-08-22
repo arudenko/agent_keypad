@@ -89,7 +89,7 @@ interface and keys still do nothing, grant the permission and restart the daemon
 ### The usage-page trap
 
 macOS enumerates one HID interface per usage page — a stock KM16 shows up eight times.
-Only the vendor-defined page `0xFF60` interface speaks the RawMacroPad protocol, so
+Only the vendor-defined page `0xFF00` interface speaks the RawMacroPad protocol, so
 `KM16.open()` filters `hid.enumerate()` on that page and opens by path. Opening by bare
 VID/PID (what the upstream client does) grabs whichever interface enumerates first and
 reads nothing, indistinguishable from the missing-permission symptom above.

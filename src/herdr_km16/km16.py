@@ -39,10 +39,13 @@ PID = 0x88BF
 STOCK_VID = 0x5343  # unflashed KM16, useful for diagnostics
 STOCK_PID = 0x0080
 
-# QMK-style raw HID vendor usage page. macOS exposes each usage page as its own HID
-# interface, and opening by bare VID/PID grabs whichever enumerates first -- often the
-# keyboard interface, whose reads silently return nothing. Filter for this page.
-RAW_USAGE_PAGE = 0xFF60
+# RawMacroPad's raw HID vendor usage page, read off the flashed device and confirmed in
+# its report descriptor (usbd_customhid_if.c: "Usage Page (Vendor Defined 0xFF00)").
+# NOT QMK/VIA's 0xFF60 -- the STOCK firmware exposes a 0xFF60 interface for the VIA
+# configurator, which is exactly the kind of near-miss this filter exists to reject.
+# macOS exposes each usage page as its own HID interface, and opening by bare VID/PID
+# grabs whichever enumerates first, whose reads then silently return nothing.
+RAW_USAGE_PAGE = 0xFF00
 
 REPORT_SIZE = 64
 PACKET_SIZE = REPORT_SIZE + 1  # leading 0x00 report ID

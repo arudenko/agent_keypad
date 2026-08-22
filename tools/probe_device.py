@@ -4,7 +4,7 @@
 
 Covers both identities: stock VIA firmware (5343:0080) and RawMacroPad (1209:88BF).
 On macOS a single device enumerates one HID interface per usage page; only the
-RawMacroPad interface at vendor usage page 0xFF60 speaks the LED/key protocol, which is
+RawMacroPad interface at vendor usage page 0xFF00 speaks the LED/key protocol, which is
 why KM16.open() filters on it instead of opening by bare VID/PID.
 
 If the right interface is listed but reads return nothing, grant the process running the
