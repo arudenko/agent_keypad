@@ -23,7 +23,7 @@ It runs over RAW HID, so it works no matter which window has focus.
    | APPROVE | REJECT  |  STOP   |  NEXT   |  <- actions, on the selected agent
    +---------+---------+---------+---------+
       [ main knob ]   [ left ]   [ right ]
-       cycle+focus      esc      brightness
+       cycle+focus      font     brightness
 ```
 
 The 6 underglow LEDs summarise everything at a glance — red if anything is blocked, green if
@@ -291,25 +291,27 @@ All three are also push buttons. Turning and pressing use the same index.
 
 | Control | Index | Turn | Press |
 | --- | --- | --- | --- |
-| Main encoder | 16 | Cycle **every session in sidebar order**, focusing as it lands | Focus the selected agent |
-| Small left | 17 | Cycle keyed agents by attention priority | Send **Esc** |
+| Main encoder | 16 | Cycle **every session in sidebar order**, focusing as it lands | Toggle the selected session's **scratch terminal** |
+| Small left | 17 | **Font size** of the selected session, one step per detent | Toggle **zoom** on the active surface |
 | Small right | 18 | **Brightness** — dim/brighten the whole pad | Send **Enter** — long press only |
 
 The main knob loops through the whole sidebar top to bottom and wraps around — every session
 in agterm, including ones beyond the pad's keys. A selected session without a key shows no
 highlight, but the bottom-row actions still target it.
 
-Attention priority is `blocked` → `done` → `working` → `idle` → `unknown`, so turning the left
+The left knob and the knob presses are view controls: they change what you see, never what an
+agent receives, so none of them are long-press gated. Font steps target the selected session
+(the active one when nothing is selected); the hidden scratch shell stays alive across toggles.
+
+A `cycle_attention_agents` rotate action also exists for any knob via `config.yaml`.
+Attention priority is `blocked` → `done` → `working` → `idle` → `unknown`, so turning such a
 knob walks you through whatever needs you most first. Ties break by slot number, so the order
-stays stable.
+stays stable. (The **Next** key covers the same need server-side by default.)
 
 The main encoder focuses as you turn (`focus_on_turn: true`) — no press needed. A slow turn
 switches agterm on every detent; a fast spin is throttled to one focus per 150 ms — sampling
 the loop in order rather than strobing agterm through every session — and always ends on the
 session where you stop.
-
-The other two only move the selection and talk to nobody; the highlighted key brightens and
-agterm is contacted when you press. Set `focus_on_turn` on any encoder to change that.
 
 The right knob adjusts brightness live, `km16.brightness_step` (0.05) per detent. It clamps
 at 1.0 and floors at 0.03 rather than 0 — a pad you can accidentally turn completely dark

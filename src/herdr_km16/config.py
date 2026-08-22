@@ -12,8 +12,8 @@ from .action_types import DEFAULT_ACTION_COLORS, VALID_ACTION_KEYS
 from .leds import DEFAULT_COLORS, parse_color
 
 VALID_KEY_ACTIONS = {"focus_agent", "none"}
-VALID_ROTATE_ACTIONS = {"cycle_attention_agents", "cycle_agents", "brightness", "none"}
-VALID_PRESS_ACTIONS = {"focus_selected", "escape", "enter", "interrupt", "none"}
+VALID_ROTATE_ACTIONS = {"cycle_attention_agents", "cycle_agents", "brightness", "font_size", "none"}
+VALID_PRESS_ACTIONS = {"focus_selected", "escape", "enter", "interrupt", "scratch", "zoom", "none"}
 
 
 
@@ -47,9 +47,9 @@ class Config:
     static: dict[int, str] = field(default_factory=dict)
     key_press: str = "focus_agent"
     main_encoder: EncoderConfig = field(
-        default_factory=lambda: EncoderConfig("cycle_agents", "focus_selected", focus_on_turn=True)
+        default_factory=lambda: EncoderConfig("cycle_agents", "scratch", focus_on_turn=True)
     )
-    left_encoder: EncoderConfig = field(default_factory=lambda: EncoderConfig("cycle_attention_agents", "escape"))
+    left_encoder: EncoderConfig = field(default_factory=lambda: EncoderConfig("font_size", "zoom"))
     right_encoder: EncoderConfig = field(default_factory=lambda: EncoderConfig("brightness", "enter"))
     action_keys: dict[int, str] = field(default_factory=dict)
     action_colors: dict[str, int] = field(default_factory=lambda: dict(DEFAULT_ACTION_COLORS))
