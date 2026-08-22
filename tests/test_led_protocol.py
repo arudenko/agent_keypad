@@ -123,3 +123,42 @@ def test_fading_keys_reach_truly_dark_at_their_own_troughs():
     assert renderer.key_frame(slots, phase=0.0)[1] != 0x000000
     assert renderer.key_frame(slots, phase=PULSE_PERIOD["blocked"] / 2)[0] == 0x000000
     assert renderer.key_frame(slots, phase=PULSE_PERIOD["working"] / 2)[1] == 0x000000
+
+
+def test_layer_led_shows_the_most_urgent_state_at_full_intensity():
+    """The logo LED keeps only the MSB of each channel, so its colour must go unscaled --
+    brightness-scaled values would zero every MSB and the LED would never light."""
+    from herdr_km16.leds import LedRenderer
+    from herdr_km16.mapping import Agent, SlotMap
+
+    renderer = LedRenderer(pulse=False, brightness=0.35)
+    slots = SlotMap()
+    slots.sync([Agent("a", "working"), Agent("b", "done")])
+    assert renderer.layer_frame(slots) == [0x00FF44], "done outranks working, unscaled"
+    slots.update_status("a", "blocked")
+    frame = renderer.layer_frame(slots)
+    assert frame == [0xFF0000]
+    assert (frame[0] >> 16) & 0x80, "the MSB must survive, or the 1-bit LED stays dark"
+
+
+def test_layer_led_is_dark_when_everything_is_idle():
+    from herdr_km16.leds import LedRenderer
+    from herdr_km16.mapping import Agent, SlotMap
+
+    slots = SlotMap()
+    assert LedRenderer(pulse=False).layer_frame(slots) == [0x000000]
+    slots.sync([Agent("a", "idle")])
+    assert LedRenderer(pulse=False).layer_frame(slots) == [0x000000], \
+        "a lit logo must always mean something is happening"
+
+
+def test_layer_led_blinks_with_the_blocked_fade():
+    """MSB thresholding turns the smooth fade into on/off at the logo LED."""
+    from herdr_km16.leds import PULSE_PERIOD, LedRenderer
+    from herdr_km16.mapping import Agent, SlotMap
+
+    slots = SlotMap()
+    slots.sync([Agent("a", "blocked")])
+    renderer = LedRenderer()
+    assert renderer.layer_frame(slots, phase=0.0) == [0xFF0000]
+    assert renderer.layer_frame(slots, phase=PULSE_PERIOD["blocked"] / 2) == [0x000000]

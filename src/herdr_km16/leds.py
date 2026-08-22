@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 
 from .action_types import ACTIONS_NEED_TARGET
-from .km16 import CHAIN_SIZES, CHAIN_UNDERGLOW
+from .km16 import CHAIN_LAYER, CHAIN_SIZES, CHAIN_UNDERGLOW
 from .mapping import SlotMap
 
 # How far to dim an action key that currently has nothing to act on.
@@ -140,6 +140,30 @@ class LedRenderer:
                     )
                 return [scale(self.color_for(status), factor)] * size
         return [scale(self.colors["idle"], self.brightness)] * size
+
+    def layer_frame(self, slots: SlotMap, phase: float = 0.0) -> list[int]:
+        """The single logo LED (chain 2): the most urgent state, at full intensity.
+
+        The firmware keeps only the MSB of each colour component for this LED (and the
+        chain ignores the enable switches), so the configured colour goes UNSCALED --
+        applying `brightness` would zero every MSB and the LED would never light. The
+        pulse factor still applies: MSB thresholding turns the smooth fade into an
+        on/off blink, which is exactly the attention signal wanted here. All-idle (or
+        empty) leaves it dark, so a lit logo always means something is happening.
+        """
+        statuses = {a.status for a in slots.live_agents()}
+        for status in ("blocked", "done", "working"):
+            if status in statuses:
+                factor = 1.0
+                if self.pulse:
+                    factor = pulse_factor(
+                        phase,
+                        PULSE_DEPTH.get(status, 0.0),
+                        PULSE_PERIOD.get(status, DEFAULT_PULSE_PERIOD),
+                        square=status in PULSE_SQUARE,
+                    )
+                return [scale(self.color_for(status), factor)]
+        return [0x000000] * CHAIN_SIZES[CHAIN_LAYER]
 
     def wants_animation(self, slots: SlotMap) -> bool:
         """True when some visible state pulses, so the caller knows to keep ticking."""

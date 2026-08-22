@@ -28,7 +28,7 @@ from pathlib import Path
 from .actions import ActionRouter
 from .agterm import TOPOLOGY_KINDS, AgtermClient, AgtermError, AgtermEventStream, map_status
 from .config import Config, load_config
-from .km16 import CHAIN_KEYS, CHAIN_UNDERGLOW, KM16
+from .km16 import CHAIN_KEYS, CHAIN_LAYER, CHAIN_UNDERGLOW, KM16
 from .leds import LedRenderer
 from .mapping import Agent, SlotMap
 
@@ -260,6 +260,7 @@ class Controller:
             try:
                 device.set_frame(CHAIN_KEYS, self.renderer.key_frame(self.slots, self.router.selected, phase))
                 device.set_frame(CHAIN_UNDERGLOW, self.renderer.underglow_frame(self.slots, phase))
+                device.set_frame(CHAIN_LAYER, self.renderer.layer_frame(self.slots, phase))
             except Exception as exc:
                 log.warning("LED write failed: %s", exc)
 
@@ -283,6 +284,7 @@ class Controller:
             if self.device is not None:
                 with contextlib.suppress(Exception):
                     self.device.set_frame(CHAIN_KEYS, [0] * 16, force=True)
+                    self.device.set_frame(CHAIN_LAYER, [0], force=True)
                     self.device.set_watchdog(0)
                     self.device.close()
 

@@ -180,11 +180,16 @@ else         ->  dim white
 
 Set `km16.underglow: false` to switch it off.
 
-### Layer indicator
+### Layer indicator (the LED by the MMD logo, between the knobs)
 
-Not driven by agent state. The firmware flashes it **red** whenever no client is pinging the
-watchdog — i.e. the daemon is not running or has died. A calm indicator means the daemon is
-alive.
+While the daemon runs, it shows the **most urgent state present anywhere**, like the
+underglow: red if anything is blocked (blinking with the fade), green if anything finished,
+blue if anything is working, dark when everything is idle — so a lit logo always means
+something is happening. This LED keeps only the top bit of each colour channel, so it shows
+full-intensity colours and ignores the brightness knob.
+
+When the daemon is **not** running (or has died), the firmware takes it back and flashes it
+red — the watchdog complaining that nobody is pinging it.
 
 ### Key mapping
 
