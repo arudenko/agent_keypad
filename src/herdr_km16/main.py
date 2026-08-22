@@ -123,7 +123,10 @@ class Controller:
                     # `notify` and anything future: not ours.
             except (AgtermError, OSError) as exc:
                 log.warning("agterm unavailable (%s); retrying in %ss", exc, self.config.reconnect_seconds)
-                if self.slots.live_agents():
+                # session_order, not live_agents: the selection can be a keyless session
+                # now, and live_agents only sees the keyed ones -- a config with no free
+                # agent keys would skip this clear entirely.
+                if self.slots.session_order() or self.router.selected is not None:
                     self.slots.sync([])
                     # The identity map is gone. A dangling identity would silently
                     # re-arm the moment a session with the same id reappears, so the

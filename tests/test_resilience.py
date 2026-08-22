@@ -98,6 +98,33 @@ def test_outage_clears_the_selection_with_the_slots(monkeypatch, caplog):
     assert controller.router.selected is None
 
 
+def test_outage_clears_a_keyless_selection_too(monkeypatch):
+    """With every key action-bound no session holds a key, so live_agents() is empty --
+    the clear must key off the cached sessions, or a keyless selection survives the
+    outage and silently re-arms the bottom row after reconnect."""
+    from herdr_km16.mapping import Agent
+
+    controller = m.Controller(Config(action_keys={i: "approve" for i in range(16)}))
+    controller.slots.sync([Agent("AAAA", "working", terminal_id="AAAA")])
+    assert controller.slots.live_agents() == [], "precondition: the session is keyless"
+    controller.router.selected = "AAAA"
+
+    async def failing_reconcile():
+        raise AgtermError("connection_closed", "socket gone")
+
+    async def stop(_):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(controller, "_reconcile", failing_reconcile)
+    monkeypatch.setattr(m.asyncio, "sleep", stop)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(controller.agterm_loop())
+
+    assert controller.slots.session_order() == []
+    assert controller.router.selected is None
+
+
 def test_malformed_status_event_neither_idles_the_agent_nor_restarts(monkeypatch, caplog):
     """Events always carry an explicit status; one without must be ignored outright."""
     from herdr_km16.mapping import Agent
