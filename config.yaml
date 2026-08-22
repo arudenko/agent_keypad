@@ -28,7 +28,7 @@ km16:
 
 colors:
   working: "#0066ff"
-  blocked: "#ff0000"
+  blocked: "#0066ff"   # blinks, so it stays distinct from steady working blue
   done: "#00ff44"
   idle: "#202020"
   unknown: "#ff9900"
