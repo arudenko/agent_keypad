@@ -28,7 +28,7 @@ km16:
 
 colors:
   working: "#0066ff"
-  blocked: "#ff0000"   # blinks red: needs you now
+  blocked: "#ff0000"   # fades red (fast cycle): needs you now
   done: "#00ff44"
   idle: "#202020"
   unknown: "#ff9900"

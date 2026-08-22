@@ -225,8 +225,9 @@ The port is done and verified on hardware:
   focus (and raise the app via `open -b`), bottom row acts, Next jumps server-side.
 - `mapping.compact: true` closes key gaps on session close; the reconcile makes the
   selection follow the AGENT across the shift so a post-close approve cannot misfire.
-- Only `blocked` animates: a full-depth 1 s fade to true dark and back (`leds.PULSE_*`;
-  the square-wave blink variant remains available in `pulse_factor`).
+- Both live states animate as full-depth fades to true dark and back: `blocked` red at
+  1 s, `working` blue at 2 s -- pace signals urgency (`leds.PULSE_*`; the square-wave
+  blink variant remains available in `pulse_factor`).
 
 Remaining: no launchd startup service yet.
 

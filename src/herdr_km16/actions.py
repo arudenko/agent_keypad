@@ -75,7 +75,7 @@ class ActionRouter:
         log.info("focus slot %s -> %s (%s)", slot, agent.target, agent.status)
         try:
             await self.client.focus_agent(agent.target)
-        except AgtermError as exc:
+        except (AgtermError, OSError) as exc:  # agterm gone mid-press is routine
             log.warning("focus %s failed: %s", agent.target, exc)
             return
         if self.config.activate_app:
@@ -95,14 +95,14 @@ class ActionRouter:
         log.info("send %r to %s (%s)", key, agent.target, agent.status)
         try:
             await self.client.send_keys(agent.target, [key])
-        except AgtermError as exc:
+        except (AgtermError, OSError) as exc:
             log.warning("send_keys %r to %s failed: %s", key, agent.target, exc)
 
     async def next_attention(self) -> None:
         """Server-side jump to the next blocked/completed session. Sends no keystrokes."""
         try:
             session_id = await self.client.next_attention()
-        except AgtermError as exc:
+        except (AgtermError, OSError) as exc:
             log.warning("next-attention jump failed: %s", exc)
             return
         if session_id is not None:

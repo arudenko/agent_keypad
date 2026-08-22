@@ -154,7 +154,8 @@ Two of them move, so urgency reads from the corner of your eye:
 - **Both live states fade** from fully dark to lit and back (100% depth): urgent red
   (`blocked`) cycles once a second, calm blue (`working`) breathes at half that pace — so
   urgency reads from the corner of your eye even before the colour does.
-- The at-rest states are steady, and the pad sends no HID traffic at all while nothing pulses.
+- The at-rest states are steady, and no LED frames are sent while nothing pulses (only
+  the watchdog pings and the periodic chain re-asserts continue).
 
 The whole pad runs at `brightness` (default `0.35`) so it is not glaring. The **currently
 selected** key is drawn at up to double brightness — brighter, never a different colour, so

@@ -297,3 +297,28 @@ def test_threshold_is_honoured_when_reconfigured():
 def test_shipped_config_uses_300ms():
     cfg = load_config(Path(__file__).resolve().parent.parent / "config.yaml")
     assert cfg.long_press_ms == 300
+
+
+def test_agterm_outage_during_an_action_is_a_warning_not_a_crash(caplog):
+    """The socket client raises OSError (not AgtermError) when agterm is down; every
+    action path must take the quiet warning path, not surface a traceback."""
+    import logging
+
+    class DeadClient(FakeClient):
+        async def focus_agent(self, target):
+            raise ConnectionRefusedError("agterm is down")
+
+        async def send_keys(self, target, keys):
+            raise ConnectionRefusedError("agterm is down")
+
+        async def next_attention(self):
+            raise FileNotFoundError("no socket")
+
+    router, _, slots = make_router()
+    router.client = DeadClient()
+    router.selected = 0
+    with caplog.at_level(logging.DEBUG):
+        press(router, 0, held_ms=50)     # focus
+        press(router, 13, held_ms=40)    # reject -> send_keys
+        press(router, 15, held_ms=40)    # next_attention
+    assert any("failed" in r.message for r in caplog.records)

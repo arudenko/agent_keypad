@@ -34,8 +34,8 @@ from .mapping import Agent, SlotMap
 
 log = logging.getLogger("herdr_km16")
 
-# Fast enough that the 0.5s blocked flash renders its full dark-to-lit sweep smoothly
-# (15 frames per cycle) and reliably hits the fully-dark trough.
+# Fast enough that the 1s blocked fade renders its dark-to-lit sweep smoothly (30 frames
+# per cycle, 60 for working's 2s breathe) and reliably hits the fully-dark trough.
 ANIMATION_HZ = 30
 
 
@@ -104,9 +104,12 @@ class Controller:
                     kind = event.get("kind")
                     if kind == "status":
                         session = event.get("session")
-                        if session is None:
+                        payload = event.get("payload")
+                        # Status events always carry an explicit status; a malformed one
+                        # must neither read as "went idle" nor abandon the event page.
+                        if session is None or not isinstance(payload, dict) or "status" not in payload:
                             continue
-                        status = map_status(event.get("payload", {}).get("status"))
+                        status = map_status(payload["status"])
                         slot = self.slots.update_status(session, status)
                         if slot is not None:
                             log.info("slot %s -> %s", slot, status)
@@ -121,6 +124,10 @@ class Controller:
                 log.warning("agterm unavailable (%s); retrying in %ss", exc, self.config.reconnect_seconds)
                 if self.slots.live_agents():
                     self.slots.sync([])
+                    # The identity map is gone, so the numeric selection is meaningless --
+                    # after reconnect a DIFFERENT session could land on that key and an
+                    # approve would hit a session the user never selected.
+                    self.router.selected = None
                     self.dirty.set()
             except asyncio.CancelledError:
                 raise

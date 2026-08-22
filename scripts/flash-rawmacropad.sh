@@ -109,7 +109,9 @@ arduino-cli config add board_manager.additional_urls \
     https://github.com/stm32duino/BoardManagerFiles/raw/main/package_stmicroelectronics_index.json \
     >/dev/null 2>&1 || true
 arduino-cli core update-index
-arduino-cli core install STMicroelectronics:stm32
+# Pinned for the same reason the upstream commit is: a future core can change the FQBN
+# options or the generated firmware. 3.0.0 is the hardware-verified toolchain.
+arduino-cli core install STMicroelectronics:stm32@3.0.0
 
 # --- build --------------------------------------------------------------------
 sketch="$WORKDIR/firmware/km16"
