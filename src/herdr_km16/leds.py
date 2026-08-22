@@ -21,16 +21,16 @@ DEFAULT_COLORS = {
 }
 
 # States that pulse: depth (0 = steady, 1 = fully off at the trough) and cycle period in
-# seconds. `blocked` is the state that wants the user, so it flashes hard and fast --
-# completely dark to lit twice a second reads from across the room; the subtler 65%/1s
-# pulse it shipped with was easy to miss.
-PULSE_DEPTH = {"blocked": 1.0, "working": 0.20}
-PULSE_PERIOD = {"blocked": 0.5}
+# seconds. Both live states blink hard -- completely dark to lit twice a second reads
+# from across the room -- and the COLOUR carries the meaning: blue = working, red =
+# blocked. Steady colours are the at-rest states (idle, done).
+PULSE_DEPTH = {"blocked": 1.0, "working": 1.0}
+PULSE_PERIOD = {"blocked": 0.5, "working": 0.5}
 DEFAULT_PULSE_PERIOD = 1.0
 # States that blink as a hard square wave (half cycle on, half cycle truly off) instead
 # of the smooth cosine. A cosine only touches zero for an instant and the LED still
 # glows perceptibly at tiny duty, so a full-depth cosine reads as throbbing, not off/on.
-PULSE_SQUARE = frozenset({"blocked"})
+PULSE_SQUARE = frozenset({"blocked", "working"})
 
 
 def parse_color(value: int | str) -> int:

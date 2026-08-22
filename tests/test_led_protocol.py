@@ -94,31 +94,30 @@ def test_parse_event_ignores_unknown_and_empty():
     assert km16.parse_event([0x7F, 0, 0]) is None
 
 
-def test_blocked_blinks_hard_on_off_on_a_half_second_cycle():
-    """The attention flash is a square wave: truly 0x000000 for a whole half cycle, full
-    brightness for the other -- a cosine that only grazes zero still reads as glowing."""
-    from herdr_km16.leds import (
-        DEFAULT_PULSE_PERIOD, PULSE_DEPTH, PULSE_PERIOD, PULSE_SQUARE, pulse_factor,
-    )
+def test_live_states_blink_hard_on_off_on_a_half_second_cycle():
+    """working and blocked both blink as a square wave: truly 0x000000 for a whole half
+    cycle, full brightness for the other -- a cosine that only grazes zero still reads
+    as glowing. Colour carries the meaning (blue = working, red = blocked)."""
+    from herdr_km16.leds import PULSE_DEPTH, PULSE_PERIOD, PULSE_SQUARE, pulse_factor
 
-    assert PULSE_DEPTH["blocked"] == 1.0
-    assert PULSE_PERIOD["blocked"] == 0.5
-    assert "blocked" in PULSE_SQUARE
+    for state in ("blocked", "working"):
+        assert PULSE_DEPTH[state] == 1.0
+        assert PULSE_PERIOD[state] == 0.5
+        assert state in PULSE_SQUARE
     for phase in (0.0, 0.1, 0.24):       # first half: hard on
         assert pulse_factor(phase, 1.0, 0.5, square=True) == 1.0
     for phase in (0.25, 0.3, 0.49):      # second half: hard off, the whole half
         assert pulse_factor(phase, 1.0, 0.5, square=True) == 0.0
     assert pulse_factor(0.5, 1.0, 0.5, square=True) == 1.0, "cycle repeats every 0.5s"
-    # `working` keeps its gentle cosine breathe: never anywhere near dark.
-    assert pulse_factor(0.5, PULSE_DEPTH["working"], DEFAULT_PULSE_PERIOD) == pytest.approx(0.8)
 
 
-def test_blocked_key_renders_truly_dark_in_the_off_half():
+@pytest.mark.parametrize("state", ["blocked", "working"])
+def test_blinking_key_renders_truly_dark_in_the_off_half(state):
     from herdr_km16.leds import LedRenderer
     from herdr_km16.mapping import Agent, SlotMap
 
     slots = SlotMap()
-    slots.sync([Agent("w1:p1", "blocked")])
+    slots.sync([Agent("w1:p1", state)])
     renderer = LedRenderer()
     assert renderer.key_frame(slots, phase=0.1)[0] != 0x000000
     assert renderer.key_frame(slots, phase=0.3)[0] == 0x000000, "off means 0x000000"
