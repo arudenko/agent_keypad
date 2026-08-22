@@ -39,6 +39,11 @@ PID = 0x88BF
 STOCK_VID = 0x5343  # unflashed KM16, useful for diagnostics
 STOCK_PID = 0x0080
 
+# QMK-style raw HID vendor usage page. macOS exposes each usage page as its own HID
+# interface, and opening by bare VID/PID grabs whichever enumerates first -- often the
+# keyboard interface, whose reads silently return nothing. Filter for this page.
+RAW_USAGE_PAGE = 0xFF60
+
 REPORT_SIZE = 64
 PACKET_SIZE = REPORT_SIZE + 1  # leading 0x00 report ID
 
@@ -182,15 +187,36 @@ class KM16:
         self.reads_attempted = 0
         self.reports_received = 0
 
+    @staticmethod
+    def raw_interface_path() -> bytes | None:
+        """The hid path of the RAW HID interface, or None if it is not enumerated."""
+        import hid
+
+        for info in hid.enumerate(VID, PID):
+            if info.get("usage_page") == RAW_USAGE_PAGE:
+                return info["path"]
+        return None
+
     @classmethod
     def open(cls) -> "KM16":
         import hid
 
+        # Open by path, never by bare VID/PID: the device enumerates one HID interface
+        # per usage page and only the RAW_USAGE_PAGE one speaks this protocol. If reads
+        # then return nothing at all, the process is missing the macOS Input Monitoring
+        # permission (System Settings > Privacy & Security > Input Monitoring) -- hidapi
+        # opens the device fine and fails silently on every read.
+        path = cls.raw_interface_path()
+        if path is None:
+            raise OSError(
+                f"no RAW HID interface (usage page 0x{RAW_USAGE_PAGE:04X}) "
+                f"enumerated for {VID:04x}:{PID:04x}"
+            )
         if hasattr(hid, "Device"):  # apmorton/hid
-            device = hid.Device(VID, PID)
+            device = hid.Device(path=path)
         else:  # cython-hidapi
             device = hid.device()
-            device.open(VID, PID)
+            device.open_path(path)
         return cls(device)
 
     @staticmethod

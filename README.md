@@ -47,6 +47,46 @@ Working, and in daily use on the author's machine. Be aware of the caveats:
 One known cosmetic issue: occasional LED flicker, cause not yet identified. `km16.pulse: false`
 stops it.
 
+## macOS + agterm (this fork)
+
+This fork runs the daemon natively on macOS against [agterm](https://github.com/umputun/agterm)
+instead of Herdr: the backend is `src/herdr_km16/agterm.py`, statuses map
+`active→working`, `completed→done`, `blocked→blocked`, absent→`idle`, and the Next key
+delegates to agterm's `session.go --to next-attention`. The colour table, key layout and
+safety gates below are unchanged.
+
+```bash
+git clone https://github.com/arudenko/agent_keypad
+cd agent_keypad
+python3 -m venv .venv
+.venv/bin/pip install -e ".[dev]"
+.venv/bin/python -m pytest              # full suite; no hardware or agterm needed
+.venv/bin/python tools/agterm_watch.py  # live ANSI mock of the pad, no hardware
+.venv/bin/python tools/probe_device.py  # which HID interface the daemon would open
+.venv/bin/python -m herdr_km16.main     # the daemon
+```
+
+Logs go to `~/Library/Logs/agterm-keypad/daemon.log` (falling back to
+`~/.local/state/agterm-keypad/` off macOS); `--log-file` / `--no-log-file` still apply.
+
+### Input Monitoring permission
+
+The process running the daemon (your terminal app, or the Python binary when launched by
+launchd) needs **System Settings ▸ Privacy & Security ▸ Input Monitoring**. Without it,
+hidapi opens the keypad without any error and every `read()` silently returns nothing:
+LEDs still light (writes go through), but key presses never arrive and the log stays
+clean. A pad that lights up yet ignores every key is this permission missing, not a
+hardware fault. `tools/probe_device.py` shows the enumeration; if it lists the raw
+interface and keys still do nothing, grant the permission and restart the daemon.
+
+### The usage-page trap
+
+macOS enumerates one HID interface per usage page — a stock KM16 shows up eight times.
+Only the vendor-defined page `0xFF60` interface speaks the RawMacroPad protocol, so
+`KM16.open()` filters `hid.enumerate()` on that page and opens by path. Opening by bare
+VID/PID (what the upstream client does) grabs whichever interface enumerates first and
+reads nothing, indistinguishable from the missing-permission symptom above.
+
 ## Requirements
 
 | | |
