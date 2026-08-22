@@ -11,12 +11,14 @@
 # Wiring (in ~/.claude/settings.json):
 #   SubagentStart  -> agterm-bgwait-hook.sh start      # add a marker
 #   SubagentStop   -> agterm-bgwait-hook.sh stop       # remove it
+#   PostToolUse    -> agterm-bgwait-hook.sh posttool   # track backgrounded Bash launches
 #   Stop           -> agterm-bgwait-hook.sh turn-end   # markers left? waiting : completed
 #   SessionStart   -> agterm-bgwait-hook.sh clean      # drop stale markers from a crash
 #
-# Backgrounded Bash commands are deliberately NOT tracked: they have no completion hook
-# event, and their finish re-invokes the agent whose normal activity hooks recover the
-# status anyway.
+# Backgrounded Bash has no completion hook event, but the harness appends an
+# "[exited with code N]" line to the task's output file when it finishes -- so its marker
+# stores that file's path and turn-end reaps markers whose file carries the exit line
+# (or is gone). A format change upstream degrades gracefully to the MAX_AGE expiry.
 #
 # Like the agterm status hook, this must never interfere with the agent: it stays silent
 # and always exits 0. Statuses are set through the installed agterm-agent-status.sh so
@@ -43,9 +45,41 @@ except Exception:
     print("")' 2>/dev/null || true
 }
 
+# The path a backgrounded Bash launch will stream its output to, or nothing if this
+# PostToolUse payload is not a background launch. Read from the raw JSON defensively:
+# the response shape is not documented, but the output path phrasing is stable.
+background_output_from_stdin() {
+    python3 -c 'import json, re, sys
+raw = sys.stdin.read()
+try:
+    d = json.loads(raw)
+except Exception:
+    sys.exit(0)
+if d.get("tool_name") != "Bash":
+    sys.exit(0)
+blob = json.dumps(d.get("tool_response", "")) + json.dumps(d.get("tool_input", ""))
+m = re.search(r"Output is being written to: ([^\s\"\\\\]+)", blob)
+if m and ("run_in_background" in blob or "background" in blob):
+    print(m.group(1))' 2>/dev/null || true
+}
+
 prune_stale() {
     [ -d "$MARK_DIR" ] || return 0
     find "$MARK_DIR" -type f -mmin +"$MAX_AGE_MINUTES" -delete 2>/dev/null || true
+}
+
+# Remove bash markers whose task has finished: the harness appends "[exited with code N]"
+# to the output file at completion, and a vanished file also means done.
+reap_finished_bash() {
+    [ -d "$MARK_DIR" ] || return 0
+    for marker in "$MARK_DIR"/bash-*; do
+        [ -e "$marker" ] || continue
+        out="$(cat "$marker" 2>/dev/null)"
+        if [ -z "$out" ] || [ ! -e "$out" ] \
+                || tail -c 4000 "$out" 2>/dev/null | grep -q '\[exited with code'; then
+            rm -f "$marker" 2>/dev/null || true
+        fi
+    done
 }
 
 live_markers() {
@@ -70,8 +104,16 @@ case "${1:-}" in
             [ -n "$oldest" ] && rm -f "$oldest" 2>/dev/null || true
         fi
         ;;
+    posttool)
+        out="$(background_output_from_stdin)"
+        [ -n "$out" ] || exit 0
+        mkdir -p "$MARK_DIR" 2>/dev/null || exit 0
+        # Name the marker by the output path so relaunches dedupe naturally.
+        printf '%s' "$out" > "$MARK_DIR/bash-$(printf '%s' "$out" | shasum | cut -c1-12)" 2>/dev/null || true
+        ;;
     turn-end)
         prune_stale
+        reap_finished_bash
         if [ "$(live_markers)" -gt 0 ]; then
             # Still waiting on background work: stay visibly alive instead of "done".
             # The colour tints the sidebar glyph so a parked-waiting agent reads
