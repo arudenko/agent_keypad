@@ -79,6 +79,18 @@ Flashing on macOS uses the bash ports of the scripts below — `scripts/backup-k
 `backup.sha256`; `flash` refuses to run without that verified pair and asks for explicit
 confirmation. Everything else in [Flashing the keypad](#flashing-the-keypad) still applies.
 
+### Waiting on background subagents
+
+Claude Code fires its `Stop` hook whenever a turn ends — including when the turn ends
+*because* the agent is parked waiting for a background subagent — so the stock wiring
+shows a waiting agent as green/idle. `scripts/agterm-bgwait-hook.sh` fixes that with
+per-subagent marker files: `SubagentStart`/`SubagentStop` hooks maintain the markers and
+the `Stop` hook chooses between "still waiting" (`active --blink`, purple-tinted glyph)
+and a real `completed`. Backgrounded Bash commands are deliberately not tracked — their
+completion re-invokes the agent, whose normal activity hooks recover the status. Wire it
+in `~/.claude/settings.json` per the header comment; stale markers expire after 4 hours
+and are cleared on session start.
+
 ### Input Monitoring permission
 
 The process running the daemon (your terminal app, or the Python binary when launched by

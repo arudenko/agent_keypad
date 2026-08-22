@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# agterm-bgwait-hook -- make "waiting on a background subagent" visible in agterm.
+#
+# Claude Code fires its Stop hook whenever a turn ends, INCLUDING when the turn ends
+# because the agent is parked waiting for a background subagent. The stock wiring maps
+# Stop to `completed`, so a waiting agent shows green/idle. Stop's input carries nothing
+# about pending background work (verified against the docs), but SubagentStart and
+# SubagentStop do fire around subagents -- so we keep marker files per live subagent and
+# let the turn-end decide between "still waiting" and "actually done".
+#
+# Wiring (in ~/.claude/settings.json):
+#   SubagentStart  -> agterm-bgwait-hook.sh start      # add a marker
+#   SubagentStop   -> agterm-bgwait-hook.sh stop       # remove it
+#   Stop           -> agterm-bgwait-hook.sh turn-end   # markers left? waiting : completed
+#   SessionStart   -> agterm-bgwait-hook.sh clean      # drop stale markers from a crash
+#
+# Backgrounded Bash commands are deliberately NOT tracked: they have no completion hook
+# event, and their finish re-invokes the agent whose normal activity hooks recover the
+# status anyway.
+#
+# Like the agterm status hook, this must never interfere with the agent: it stays silent
+# and always exits 0. Statuses are set through the installed agterm-agent-status.sh so
+# socket/pane resolution lives in one place.
+
+set -u
+
+STATUS_HOOK="$HOME/.config/agterm/agent-status/agterm-agent-status.sh"
+# Markers older than this are ignored and pruned: a crashed session must not leave the
+# glyph "waiting" forever. Long-running background agents beyond this simply degrade to
+# the stock completed/idle behaviour.
+MAX_AGE_MINUTES=240
+
+[ -n "${AGTERM_SESSION_ID:-}" ] || exit 0   # not inside agterm: nothing to do
+MARK_DIR="$HOME/.cache/agterm-keypad/bgwait/$AGTERM_SESSION_ID"
+
+# The hook payload arrives on stdin; the subagent id names the marker file. Reading
+# stdin must never block the hook: python exits fast whether or not JSON arrives.
+agent_id_from_stdin() {
+    python3 -c 'import json,sys
+try:
+    print(json.load(sys.stdin).get("agent_id", ""))
+except Exception:
+    print("")' 2>/dev/null || true
+}
+
+prune_stale() {
+    [ -d "$MARK_DIR" ] || return 0
+    find "$MARK_DIR" -type f -mmin +"$MAX_AGE_MINUTES" -delete 2>/dev/null || true
+}
+
+live_markers() {
+    [ -d "$MARK_DIR" ] || { echo 0; return; }
+    find "$MARK_DIR" -type f 2>/dev/null | wc -l | tr -d ' '
+}
+
+case "${1:-}" in
+    start)
+        mkdir -p "$MARK_DIR" 2>/dev/null || exit 0
+        agent_id="$(agent_id_from_stdin)"
+        [ -n "$agent_id" ] || agent_id="anon-$$-$(date +%s)"
+        : > "$MARK_DIR/$agent_id" 2>/dev/null || true
+        ;;
+    stop)
+        agent_id="$(agent_id_from_stdin)"
+        if [ -n "$agent_id" ] && [ -e "$MARK_DIR/$agent_id" ]; then
+            rm -f "$MARK_DIR/$agent_id" 2>/dev/null || true
+        else
+            # Unidentifiable subagent: drop one marker so the count still drains.
+            oldest="$(find "$MARK_DIR" -type f 2>/dev/null | head -1)"
+            [ -n "$oldest" ] && rm -f "$oldest" 2>/dev/null || true
+        fi
+        ;;
+    turn-end)
+        prune_stale
+        if [ "$(live_markers)" -gt 0 ]; then
+            # Still waiting on background work: stay visibly alive instead of "done".
+            # The colour tints the sidebar glyph so a parked-waiting agent reads
+            # differently from one actively running tools.
+            "$STATUS_HOOK" active --blink --color "#aa66ff" || true
+        else
+            "$STATUS_HOOK" completed --auto-reset || true
+        fi
+        ;;
+    clean)
+        rm -rf "$MARK_DIR" 2>/dev/null || true
+        ;;
+esac
+exit 0
