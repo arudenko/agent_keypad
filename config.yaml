@@ -69,11 +69,11 @@ controls:
     # beyond the pad's keys -- a keyless selection still takes bottom-row actions.
     rotate: cycle_agents
     focus_on_turn: true    # focus as the knob lands, no press needed
-    press: focus_selected  # redundant with focus_on_turn, but harmless
+    press: scratch         # toggle the selected session's scratch terminal
 
   left_encoder:            # key index 17
-    rotate: cycle_attention_agents   # keyed agents only, blocked/done first
-    press: escape
+    rotate: font_size      # grow/shrink the selected session's font per detent
+    press: zoom            # toggle zoom on the active surface
 
   right_encoder:           # key index 18
     rotate: brightness     # turn to dim/brighten the whole pad (runtime only)

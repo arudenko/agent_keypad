@@ -169,6 +169,19 @@ class AgtermClient:
         except (FileNotFoundError, OSError):
             pass
 
+    async def font_step(self, target: str | None, delta: int) -> Any:
+        """Grow or shrink a session's font by one step (agterm's own increment)."""
+        return await self.call("font.inc" if delta > 0 else "font.dec",
+                               target=target or "active")
+
+    async def scratch_toggle(self, target: str) -> Any:
+        """Show or hide a session's scratch terminal. The hidden shell stays alive."""
+        return await self.call("session.scratch", target=target, args={"mode": "toggle"})
+
+    async def zoom_toggle(self) -> Any:
+        """Toggle zoom on the active surface."""
+        return await self.call("surface.zoom", target="active", args={"mode": "toggle"})
+
     async def next_attention(self) -> str | None:
         """Server-side jump to the next blocked/completed session.
 

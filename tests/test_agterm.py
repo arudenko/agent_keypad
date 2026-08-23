@@ -162,6 +162,31 @@ def test_focus_send_and_jump_wire_shapes():
     assert jumped == "CCCC"
 
 
+def test_view_control_wire_shapes():
+    """Pins the wire contract for the knob view controls, as captured from agtermctl:
+    font.inc/dec are target-only, scratch and zoom carry {"mode": "toggle"} in args."""
+    async def run():
+        async with FakeAgterm() as server:
+            client = a.AgtermClient(server.path)
+            await client.font_step("AAAA", +1)
+            await client.font_step("AAAA", -1)
+            await client.font_step(None, +1)  # no selection falls back to `active`
+            await client.scratch_toggle("AAAA")
+            await client.zoom_toggle()
+            return server.requests
+
+    requests = asyncio.run(run())
+    assert requests[0] == {"cmd": "font.inc", "target": "AAAA"}
+    assert requests[1] == {"cmd": "font.dec", "target": "AAAA"}
+    assert requests[2] == {"cmd": "font.inc", "target": "active"}
+    assert requests[3] == {
+        "cmd": "session.scratch", "target": "AAAA", "args": {"mode": "toggle"},
+    }
+    assert requests[4] == {
+        "cmd": "surface.zoom", "target": "active", "args": {"mode": "toggle"},
+    }
+
+
 def test_error_response_raises_agterm_error():
     async def run():
         async with FakeAgterm() as server:

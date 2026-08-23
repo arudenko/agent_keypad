@@ -129,6 +129,36 @@ class ActionRouter:
         except (AgtermError, OSError) as exc:
             log.warning("send_keys %r to %s failed: %s", key, agent.target, exc)
 
+    async def adjust_font(self, delta: int) -> None:
+        """Step the font of the selected session, or the active one with no selection --
+        a view knob that does nothing until something is selected feels broken."""
+        agent = self._selected_agent()
+        target = agent.target if agent else None
+        log.info("font %s %s", "inc" if delta > 0 else "dec", target or "active")
+        try:
+            await self.client.font_step(target, delta)
+        except (AgtermError, OSError) as exc:
+            log.warning("font step failed: %s", exc)
+
+    async def toggle_scratch(self) -> None:
+        """Show/hide the selected session's scratch terminal."""
+        agent = self._selected_agent()
+        if agent is None:
+            return
+        log.info("scratch toggle %s", agent.target)
+        try:
+            await self.client.scratch_toggle(agent.target)
+        except (AgtermError, OSError) as exc:
+            log.warning("scratch toggle %s failed: %s", agent.target, exc)
+
+    async def toggle_zoom(self) -> None:
+        """Toggle zoom on the active surface (what the user is looking at)."""
+        log.info("zoom toggle")
+        try:
+            await self.client.zoom_toggle()
+        except (AgtermError, OSError) as exc:
+            log.warning("zoom toggle failed: %s", exc)
+
     async def next_attention(self) -> None:
         """Server-side jump to the next blocked/completed session. Sends no keystrokes."""
         try:
@@ -217,6 +247,12 @@ class ActionRouter:
         if action in self.config.require_long_press_for and held_ms < self.config.long_press_ms:
             log.info("ignored short press for guarded action %r (%.0fms)", action, held_ms)
             return
+        if action == "scratch":
+            await self.toggle_scratch()
+            return
+        if action == "zoom":
+            await self.toggle_zoom()
+            return
         await self.send_named_key(action)
 
     def _schedule_focus(self) -> None:
@@ -263,6 +299,9 @@ class ActionRouter:
             return
         if config.rotate == "brightness":
             self.adjust_brightness(delta)
+            return
+        if config.rotate == "font_size":
+            await self.adjust_font(delta)
             return
         self.cycle(config.rotate, delta)
         if config.focus_on_turn:
