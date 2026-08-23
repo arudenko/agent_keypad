@@ -299,9 +299,10 @@ The main knob loops through the whole sidebar top to bottom and wraps around —
 in agterm, including ones beyond the pad's keys. A selected session without a key shows no
 highlight, but the bottom-row actions still target it.
 
-The left knob and the knob presses are view controls: they change what you see, never what an
-agent receives, so none of them are long-press gated. Font steps target the selected session
-(the active one when nothing is selected); the hidden scratch shell stays alive across toggles.
+Font, scratch and zoom are view controls: they change what you see, never what an agent
+receives, so none of the three is long-press gated (the right knob's Enter press does reach
+the agent and keeps its long-press guard). Font steps target the selected session — the
+active one when nothing is selected; the hidden scratch shell stays alive across toggles.
 
 A `cycle_attention_agents` rotate action also exists for any knob via `config.yaml`.
 Attention priority is `blocked` → `done` → `working` → `idle` → `unknown`, so turning such a

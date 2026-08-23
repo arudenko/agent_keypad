@@ -134,6 +134,7 @@ class ActionRouter:
         a view knob that does nothing until something is selected feels broken."""
         agent = self._selected_agent()
         target = agent.target if agent else None
+        log.info("font %s %s", "inc" if delta > 0 else "dec", target or "active")
         try:
             await self.client.font_step(target, delta)
         except (AgtermError, OSError) as exc:
