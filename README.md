@@ -263,14 +263,15 @@ selected (their keys dim to a quarter brightness to show that).
 | Key | Action | Sends | Guard |
 | --- | --- | --- | --- |
 | 12 | **Approve** | Return — accepts the highlighted prompt option | **hold 300 ms** |
-| 13 | **Reject** | Esc — declines | instant |
+| 13 | **Reject** | Esc — declines | **hold 300 ms** |
 | 14 | **Interrupt** | Ctrl-C — stops the agent | **hold 300 ms** |
 | 15 | **Next** | *no keystrokes* — agterm's own `session.go --to next-attention` jump | instant |
 
 Approve sends Enter, which accepts **whichever option Claude Code currently has highlighted**
 — normally "Yes", but it is not guaranteed to be. Approve is a fast path for prompts you have
-already read, not a substitute for reading them. Reject and Next are instant because neither
-can approve anything.
+already read, not a substitute for reading them. Every key that submits input to an agent —
+approve, reject, interrupt — takes the same deliberate hold; only Next is instant, because it
+sends nothing.
 
 Action keys are steady and never pulse: they are controls, not status.
 
