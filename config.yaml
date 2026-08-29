@@ -85,6 +85,7 @@ safety:
   long_press_ms: 300
   require_long_press_for:
     - approve        # bottom-row approve key
+    - reject         # Esc still submits input to the agent -- same deliberate hold
     - enter          # right encoder press
     - interrupt
-    # `reject` and `next_attention` stay instant: neither can approve anything.
+    # `next_attention` stays instant: it sends nothing and cannot approve anything.

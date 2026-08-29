@@ -198,8 +198,9 @@ These are not optional — the keypad can drive agents that execute shell comman
   prompt — approval is only ever a separate, deliberate action on its own key.
 - **Agent keys (0–11) focus and nothing more.** They never send a keystroke.
 - Approval lives on the bottom row (keys 12–15), added at the user's request 2026-08-09.
-  `approve` and `interrupt` require a 300 ms hold; `reject` and `next_attention` are instant
-  because neither can approve anything. Guards are enforced in `ActionRouter.run_action` and
+  `approve`, `reject` and `interrupt` require a 300 ms hold (reject joined 2026-08-29 at
+  the user's request); `next_attention` is instant because it sends no keystrokes and
+  cannot approve anything. Guards are enforced in `ActionRouter.run_action` and
   tested in `tests/test_action_keys.py` — treat those tests as requirements, not examples.
 - Approve types a literal Return (`"\n"` via `session.type`), which accepts whatever option
   Claude Code has highlighted. That is usually but not always "Yes", so it is a fast path

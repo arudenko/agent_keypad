@@ -120,10 +120,14 @@ def test_interrupt_needs_a_long_press():
     assert client.sent == [("w1:p1", ["\x03"])], "interrupt is a literal Ctrl-C"
 
 
-def test_reject_is_instant():
+def test_reject_needs_a_long_press():
+    """Esc still submits input to the agent, so it takes the same deliberate hold as
+    approve (user request 2026-08-29; it was instant before)."""
     router, client, _ = make_router()
     router.selected = "w1:p1"
     press(router, 13, held_ms=40)
+    assert client.sent == [], "a short press must not reject anything"
+    press(router, 13, held_ms=800)
     assert client.sent == [("w1:p1", ["\x1b"])], "reject is a literal Esc"
 
 
@@ -269,7 +273,8 @@ def test_shipped_config_binds_the_bottom_row():
     assert cfg.action_keys == ACTIONS
     assert "approve" in cfg.require_long_press_for
     assert "interrupt" in cfg.require_long_press_for
-    assert "reject" not in cfg.require_long_press_for
+    assert "reject" in cfg.require_long_press_for
+    assert "next_attention" not in cfg.require_long_press_for
 
 
 def test_slot_zero_can_be_actioned():
@@ -277,7 +282,7 @@ def test_slot_zero_can_be_actioned():
     'nothing selected'. The selection is an identity now, but the guarantee stands."""
     router, client, _ = make_router()
     router.selected = "w1:p1"
-    press(router, 13, held_ms=40)
+    press(router, 13, held_ms=800)
     assert client.sent == [("w1:p1", ["\x1b"])]
 
 

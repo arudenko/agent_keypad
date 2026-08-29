@@ -55,7 +55,7 @@ class Config:
     action_colors: dict[str, int] = field(default_factory=lambda: dict(DEFAULT_ACTION_COLORS))
     long_press_ms: int = 300
     require_long_press_for: list[str] = field(
-        default_factory=lambda: ["approve", "enter", "interrupt"]
+        default_factory=lambda: ["approve", "reject", "enter", "interrupt"]
     )
 
 
